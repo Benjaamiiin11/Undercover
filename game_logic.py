@@ -34,6 +34,8 @@ class GameLogic:
         self.votes: Dict[int, Dict[str, str]] = {}  # 每回合的投票 {round: {voter: target}}
         self.eliminated_groups: List[str] = []  # 已淘汰的组
         self.scores: Dict[str, int] = {}  # 得分 {group: score}
+        self.reports: List[Dict] = []  # 异常上报记录
+        self.last_vote_result: Optional[Dict] = None  # 最近一次投票结果
         
     def register_group(self, group_name: str) -> bool:
         """
@@ -87,6 +89,7 @@ class GameLogic:
                 self.groups[group_name]["word"] = civilian_word
         
         self.current_round = 1
+        self.scores = {group_name: 0 for group_name in group_names}
         self.game_status = GameStatus.WORD_ASSIGNED
         return True
     
@@ -251,7 +254,21 @@ class GameLogic:
             self.current_round += 1
             self.game_status = GameStatus.ROUND_END
         
+        self.last_vote_result = result
         return result
+
+    def add_report(self, group_name: str, report_type: str, detail: str) -> Dict:
+        """记录异常报告"""
+        ticket = f"RPT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(self.reports)+1:03d}"
+        entry = {
+            "ticket": ticket,
+            "group": group_name or "unknown",
+            "type": report_type,
+            "detail": detail,
+            "time": datetime.now().isoformat()
+        }
+        self.reports.append(entry)
+        return entry
     
     def _calculate_scores(self):
         """计算得分"""
@@ -289,8 +306,25 @@ class GameLogic:
             "eliminated_groups": self.eliminated_groups,
             "scores": self.scores,
             "descriptions": self.descriptions,
-            "votes": self.votes
+            "votes": self.votes,
+            "reports": self.reports
         }
+
+    def get_public_status(self) -> Dict:
+        """面向游戏方的公开状态"""
+        active_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
+        return {
+            "status": self.game_status.value,
+            "round": self.current_round,
+            "active_groups": active_groups,
+            "describe_order": self.describe_order if self.game_status in [GameStatus.DESCRIBING, GameStatus.VOTING] else [],
+            "eliminated_groups": self.eliminated_groups,
+            "deadline": None  # 可选：预留倒计时
+        }
+
+    def get_last_result(self) -> Optional[Dict]:
+        """最近一轮的公开投票结果"""
+        return self.last_vote_result
     
     def get_group_word(self, group_name: str) -> Optional[str]:
         """获取指定组的词语（仅在该组查询时返回）"""
@@ -311,4 +345,6 @@ class GameLogic:
         self.votes.clear()
         self.eliminated_groups = []
         self.scores.clear()
+        self.reports = []
+        self.last_vote_result = None
 

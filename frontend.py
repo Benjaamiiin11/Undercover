@@ -3,6 +3,7 @@
 提供可视化的游戏管理界面
 """
 from flask import Flask, render_template_string, jsonify
+import os
 import requests
 import threading
 import time
@@ -13,15 +14,16 @@ frontend_app = Flask(__name__)
 
 # 后端API地址
 BACKEND_URL = "http://127.0.0.1:5000"
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "host-secret")
+ADMIN_HEADERS = {'X-Admin-Token': ADMIN_TOKEN}
 
 
-def get_backend_data(endpoint):
+def get_backend_data(endpoint, use_admin=False):
     """从后端获取数据"""
     try:
-        response = requests.get(f"{BACKEND_URL}{endpoint}", timeout=2)
-        if response.status_code == 200:
-            return response.json()
-        return None
+        headers = ADMIN_HEADERS if use_admin else None
+        response = requests.get(f"{BACKEND_URL}{endpoint}", headers=headers, timeout=2)
+        return response.json()
     except:
         return None
 
@@ -30,9 +32,7 @@ def post_backend_data(endpoint, data):
     """向后端发送POST请求"""
     try:
         response = requests.post(f"{BACKEND_URL}{endpoint}", json=data, timeout=2)
-        if response.status_code == 200:
-            return response.json()
-        return None
+        return response.json()
     except:
         return None
 
@@ -172,6 +172,24 @@ HTML_TEMPLATE = """
             color: #999;
             font-size: 0.9em;
         }
+        .reports {
+            margin-top: 15px;
+        }
+        .report-item {
+            background: white;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid #ff9800;
+        }
+        .report-item .ticket {
+            font-weight: bold;
+            color: #ff9800;
+        }
+        .report-item .time {
+            color: #999;
+            font-size: 0.9em;
+        }
         .vote-result {
             margin-top: 15px;
             padding: 15px;
@@ -264,6 +282,12 @@ HTML_TEMPLATE = """
             <h2>投票结果</h2>
             <div class="vote-result" id="vote-result"></div>
         </div>
+
+        <!-- 异常上报 -->
+        <div class="section">
+            <h2>异常上报</h2>
+            <div class="reports" id="reports"></div>
+        </div>
         
         <!-- 得分 -->
         <div class="section">
@@ -280,12 +304,16 @@ HTML_TEMPLATE = """
         function updateGameState() {
             fetch('/api/game/state')
                 .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
+                .then(resp => {
+                    if (resp && resp.code === 200) {
+                        const data = resp.data || {};
                         updateStatus(data);
                         updateGroups(data);
                         updateDescriptions(data);
+                        updateReports(data);
                         updateScores(data);
+                    } else {
+                        console.error('状态刷新失败：', resp ? resp.message : '未知错误');
                     }
                 })
                 .catch(error => console.error('Error:', error));
@@ -334,14 +362,35 @@ HTML_TEMPLATE = """
         
         function updateDescriptions(data) {
             const descDiv = document.getElementById('descriptions');
-            const round = data.current_round;
-            if (!data.descriptions || !data.descriptions[round]) {
+            const allDescriptions = data.descriptions || {};
+            const rounds = Object.keys(allDescriptions);
+            if (rounds.length === 0) {
                 descDiv.innerHTML = '<p>暂无描述</p>';
                 return;
             }
-            
+
+            const numericRounds = rounds.map(r => parseInt(r, 10)).sort((a, b) => b - a);
+            let displayRound = null;
+            for (const roundKey of numericRounds) {
+                if (allDescriptions[roundKey] && allDescriptions[roundKey].length > 0) {
+                    displayRound = roundKey;
+                    break;
+                }
+            }
+
+            if (displayRound === null) {
+                displayRound = numericRounds[0];
+            }
+
+            const roundDescriptions = allDescriptions[displayRound] || [];
+            if (roundDescriptions.length === 0) {
+                descDiv.innerHTML = `<p>第 ${displayRound} 回合暂无描述</p>`;
+                return;
+            }
+
             let html = '';
-            for (const desc of data.descriptions[round]) {
+            html += `<div class="status-item">展示第 ${displayRound} 回合</div>`;
+            for (const desc of roundDescriptions) {
                 const time = new Date(desc.time).toLocaleTimeString('zh-CN');
                 html += `
                     <div class="description-item">
@@ -352,6 +401,31 @@ HTML_TEMPLATE = """
                 `;
             }
             descDiv.innerHTML = html;
+        }
+
+        function updateReports(data) {
+            const reportsDiv = document.getElementById('reports');
+            const reports = data.reports || [];
+            if (reports.length === 0) {
+                reportsDiv.innerHTML = '<p>暂无异常上报</p>';
+                return;
+            }
+
+            const latestReports = reports.slice(-10).reverse();
+            let html = '';
+            for (const report of latestReports) {
+                const time = new Date(report.time).toLocaleTimeString('zh-CN');
+                html += `
+                    <div class="report-item">
+                        <div class="ticket">${report.ticket}</div>
+                        <div>组：${report.group}</div>
+                        <div>类型：${report.type}</div>
+                        <div>${report.detail}</div>
+                        <div class="time">${time}</div>
+                    </div>
+                `;
+            }
+            reportsDiv.innerHTML = html;
         }
         
         function updateScores(data) {
@@ -391,12 +465,12 @@ HTML_TEMPLATE = """
                 })
             })
             .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('游戏已开始！');
+            .then(resp => {
+                if (resp && resp.code === 200) {
+                    alert(resp.message || '游戏已开始！');
                     updateGameState();
                 } else {
-                    alert('错误：' + data.message);
+                    alert('错误：' + (resp ? resp.message : '后端无响应'));
                 }
             })
             .catch(error => {
@@ -410,12 +484,14 @@ HTML_TEMPLATE = """
                 headers: {'Content-Type': 'application/json'}
             })
             .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('回合已开始！顺序：' + data.order.join(' -> '));
+            .then(resp => {
+                if (resp && resp.code === 200) {
+                    const payload = resp.data || {};
+                    const orderText = payload.order ? ` 顺序：${payload.order.join(' -> ')}` : '';
+                    alert((resp.message || '回合已开始！') + orderText);
                     updateGameState();
                 } else {
-                    alert('错误：' + data.message);
+                    alert('错误：' + (resp ? resp.message : '后端无响应'));
                 }
             })
             .catch(error => {
@@ -429,10 +505,11 @@ HTML_TEMPLATE = """
                 headers: {'Content-Type': 'application/json'}
             })
             .then(response => response.json())
-            .then(data => {
-                if (data.success) {
+            .then(resp => {
+                if (resp && resp.code === 200) {
+                    const data = resp.data || {};
                     let message = '投票结果：\\n';
-                    message += '得票统计：' + JSON.stringify(data.vote_count) + '\\n';
+                    message += '得票统计：' + JSON.stringify(data.vote_count || {}) + '\\n';
                     if (data.eliminated && data.eliminated.length > 0) {
                         message += '淘汰：' + data.eliminated.join(', ') + '\\n';
                     }
@@ -444,7 +521,7 @@ HTML_TEMPLATE = """
                     // 更新投票结果显示
                     const voteDiv = document.getElementById('vote-result');
                     let html = '<div class="vote-item">得票统计：</div>';
-                    for (const [group, votes] of Object.entries(data.vote_count)) {
+                    for (const [group, votes] of Object.entries(data.vote_count || {})) {
                         html += `<div class="vote-item">${group}: ${votes}票</div>`;
                     }
                     if (data.eliminated && data.eliminated.length > 0) {
@@ -454,7 +531,7 @@ HTML_TEMPLATE = """
                     
                     updateGameState();
                 } else {
-                    alert('错误：' + (data.message || data.error));
+                    alert('错误：' + (resp ? resp.message : '后端无响应'));
                 }
             })
             .catch(error => {
@@ -469,11 +546,13 @@ HTML_TEMPLATE = """
                     headers: {'Content-Type': 'application/json'}
                 })
                 .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('游戏已重置');
+                .then(resp => {
+                    if (resp && resp.code === 200) {
+                        alert(resp.message || '游戏已重置');
                         updateGameState();
                         document.getElementById('vote-result').innerHTML = '';
+                    } else {
+                        alert('错误：' + (resp ? resp.message : '后端无响应'));
                     }
                 })
                 .catch(error => {
@@ -496,7 +575,10 @@ def index():
 @frontend_app.route('/api/game/state')
 def api_game_state():
     """代理后端API"""
-    return jsonify(get_backend_data('/api/game/state'))
+    data = get_backend_data('/api/game/state', use_admin=True)
+    if data is None:
+        return jsonify({"code": 500, "message": "后端状态接口无响应", "data": {}}), 500
+    return jsonify(data)
 
 
 @frontend_app.route('/api/game/start', methods=['POST'])
@@ -504,29 +586,46 @@ def api_start_game():
     """代理后端API"""
     from flask import request
     data = request.json
-    response = requests.post(f"{BACKEND_URL}/api/game/start", json=data, timeout=2)
-    return jsonify(response.json())
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/start",
+        json=data,
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
 
 
 @frontend_app.route('/api/game/round/start', methods=['POST'])
 def api_start_round():
     """代理后端API"""
-    response = requests.post(f"{BACKEND_URL}/api/game/round/start", timeout=2)
-    return jsonify(response.json())
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/round/start",
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
 
 
 @frontend_app.route('/api/game/voting/process', methods=['POST'])
 def api_process_voting():
     """代理后端API"""
-    response = requests.post(f"{BACKEND_URL}/api/game/voting/process", timeout=2)
-    return jsonify(response.json())
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/voting/process",
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
 
 
 @frontend_app.route('/api/game/reset', methods=['POST'])
 def api_reset_game():
     """代理后端API"""
-    response = requests.post(f"{BACKEND_URL}/api/game/reset", timeout=2)
-    return jsonify(response.json())
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/reset",
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
 
 
 if __name__ == '__main__':

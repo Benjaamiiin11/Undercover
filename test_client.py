@@ -7,7 +7,7 @@ import time
 import json
 
 # 配置服务器地址（请修改为实际的主持方服务器IP）
-BASE_URL = "http://192.168.81.102:5000/"
+BASE_URL = "http://192.168.81.102:5000"
 
 def print_response(response, title=""):
     """打印响应结果"""
@@ -26,8 +26,13 @@ def test_connection():
     """测试服务器连接"""
     print("测试服务器连接...")
     try:
-        response = requests.get(f"{BASE_URL}/api/game/state", timeout=5)
-        print("✓ 服务器连接成功！")
+        response = requests.get(f"{BASE_URL}/api/status", timeout=5)
+        if response.status_code == 200 and response.json().get('code') == 200:
+            print("✓ 服务器连接成功！")
+        else:
+            print("✗ 服务器返回异常响应")
+            print_response(response, "连接响应")
+            return False
         return True
     except requests.exceptions.ConnectionError:
         print("✗ 连接失败：无法连接到服务器")
@@ -63,7 +68,7 @@ def test_get_state():
     """测试获取游戏状态"""
     print("获取游戏状态")
     try:
-        response = requests.get(f"{BASE_URL}/api/game/state", timeout=5)
+        response = requests.get(f"{BASE_URL}/api/status", timeout=5)
         print_response(response, "游戏状态")
         return response.json() if response.status_code == 200 else None
     except requests.exceptions.RequestException as e:
@@ -154,7 +159,7 @@ def main():
         group_name = "测试组"
     
     result = test_register(group_name)
-    if not result or not result.get('success'):
+    if not result or result.get('code') != 200:
         print("注册失败，退出测试")
         return
     
@@ -168,11 +173,14 @@ def main():
     
     # 获取游戏状态
     state = test_get_state()
-    if state and state.get('status') == 'word_assigned':
+    state_data = (state or {}).get('data') or {}
+    if state_data.get('status') == 'word_assigned':
         # 获取词语
         word_result = test_get_word(group_name)
-        if word_result and word_result.get('success'):
-            print(f"\n你的词语是: {word_result['word']}")
+        if word_result and word_result.get('code') == 200:
+            word = (word_result.get('data') or {}).get('word')
+            if word:
+                print(f"\n你的词语是: {word}")
     
     # 等待描述阶段
     print("\n等待描述阶段...")
@@ -190,16 +198,26 @@ def main():
     
     # 获取游戏状态以查看其他组
     state = test_get_state()
-    if state:
-        groups = state.get('groups', {})
-        other_groups = [name for name in groups.keys() if name != group_name and not groups[name].get('eliminated')]
-        if other_groups:
-            print(f"\n可投票的组: {', '.join(other_groups)}")
-            target = input(f"请输入要投票的组名（或按Enter使用'{other_groups[0]}'）: ").strip()
-            if not target:
-                target = other_groups[0]
-            test_submit_vote(group_name, target)
-    
+    state_data = (state or {}).get('data') or {}
+    groups = state_data.get('active_groups') or state_data.get('groups', {})
+
+    other_groups = []
+    if isinstance(groups, dict):
+        other_groups = [
+            name for name, info in groups.items()
+            if name != group_name and not info.get('eliminated')
+        ]
+    elif isinstance(groups, list):
+        other_groups = [name for name in groups if name != group_name]
+
+    if other_groups:
+        print(f"\n可投票的组: {', '.join(other_groups)}")
+        target = input(f"请输入要投票的组名（或按Enter使用'{other_groups[0]}'）: ").strip()
+        if not target:
+            target = other_groups[0]
+        test_submit_vote(group_name, target)
+    else:
+        print("\n没有可供投票的其他组，跳过投票步骤。")
     # 最终状态
     print("\n获取最终游戏状态...")
     test_get_state()
