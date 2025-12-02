@@ -45,17 +45,12 @@ class GameLogic:
         self.last_vote_result: Optional[Dict] = None  # 最近一次投票结果
         self.phase_deadline: Optional[datetime] = None  # 当前阶段截止时间
         self.speaker_deadline: Optional[datetime] = None  # 当前发言者截止时间
-<<<<<<< HEAD
-
         # 游戏统计
         self.game_counter = 0  # 游戏计数
         self.undercover_history: Dict[str, int] = {}  # 每个组当卧底的次数
         self.total_games_played = 0  # 总游戏次数
-
-=======
         self.last_activity: Dict[str, datetime] = {}  # 组名 -> 最后活跃时间（用于检测在线状态）
-        
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
+
     def register_group(self, group_name: str) -> bool:
         """
         注册游戏组
@@ -85,14 +80,9 @@ class GameLogic:
 
         if len(self.groups) > 0:
             self.game_status = GameStatus.REGISTERED
-<<<<<<< HEAD
-
-=======
-        
         # 更新活跃时间
         self.update_activity(group_name)
-        
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
+
         return True
 
     def start_game(self, undercover_word: str, civilian_word: str) -> bool:
@@ -230,14 +220,9 @@ class GameLogic:
             "time": datetime.now().isoformat(),
             "timeout": is_timeout  # 标记是否超时提交
         })
-<<<<<<< HEAD
 
-=======
-        
         # 更新活跃时间
         self.update_activity(group_name)
-        
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
         # 移动到下一个发言者
         self.current_speaker_index += 1
 
@@ -248,14 +233,16 @@ class GameLogic:
             self.speaker_deadline = None
 
         # 检查是否所有人都提交了
-<<<<<<< HEAD
         if len(self.descriptions[self.current_round]) >= len(self.describe_order):
-=======
+            # 设置投票阶段截止时间
+            self.phase_deadline = datetime.now() + timedelta(seconds=VOTE_TIMEOUT)
+            self.speaker_deadline = None
+            self.game_status = GameStatus.VOTING
+
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
         if len(self.descriptions[self.current_round]) >= len(active_groups):
             # 进入投票阶段前，检测是否有组未提交（可能因为网络问题）
             self.detect_missing_submissions()
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
             # 设置投票阶段截止时间
             self.phase_deadline = datetime.now() + timedelta(seconds=VOTE_TIMEOUT)
             self.speaker_deadline = None
@@ -300,17 +287,12 @@ class GameLogic:
             return False, "被投票的组不是活跃组"
 
         self.votes[self.current_round][voter_group] = target_group
-<<<<<<< HEAD
-        return True, "投票成功"
 
-=======
-        
         # 更新活跃时间
         self.update_activity(voter_group)
         
-        return True
-    
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
+        return True, "投票成功"
+
     def process_voting_result(self) -> Dict:
         """
         处理投票结果，判定淘汰和游戏状态
@@ -318,14 +300,10 @@ class GameLogic:
         """
         if self.game_status != GameStatus.VOTING:
             return {"error": "当前不在投票阶段"}
-<<<<<<< HEAD
 
-=======
-        
         # 检测未提交的组并自动记录异常
         missing_reports = self.detect_missing_submissions()
-        
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
+
         round_votes = self.votes[self.current_round]
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
 
@@ -521,13 +499,10 @@ class GameLogic:
         result["total_scores"] = self.scores.copy()
 
     def add_report(self, group_name: str, report_type: str, detail: str) -> Dict:
-<<<<<<< HEAD
+
         """记录异常报告"""
         ticket = f"RPT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(self.reports) + 1:03d}"
-=======
-        """记录异常报告（由主持端自动检测生成）"""
-        ticket = f"RPT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(self.reports)+1:03d}"
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
+
         entry = {
             "ticket": ticket,
             "group": group_name or "unknown",
@@ -537,7 +512,6 @@ class GameLogic:
         }
         self.reports.append(entry)
         return entry
-<<<<<<< HEAD
 
     def get_vote_details_for_group(self, group_name: str) -> Dict:
         """获取指定组的投票详情"""
@@ -566,8 +540,6 @@ class GameLogic:
                 result['voted_by'].append(voter)
 
         return result
-
-=======
     
     def update_activity(self, group_name: str):
         """更新组的最后活跃时间"""
@@ -695,8 +667,7 @@ class GameLogic:
             return self.last_vote_result.get("round", self.current_round)
         # 默认返回当前回合
         return self.current_round
-    
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
+
     def get_game_state(self) -> Dict:
         """获取当前游戏状态"""
         # 获取当前回合已发言的组
@@ -729,15 +700,12 @@ class GameLogic:
             "descriptions": self.descriptions,
             "votes": self.votes,
             "reports": self.reports,
-<<<<<<< HEAD
             "game_counter": self.game_counter,  # 游戏计数
             "undercover_history": self.undercover_history,  # 卧底历史
             "total_games_played": self.total_games_played,  # 总游戏次数
             "undercover_word": self.undercover_word if self.game_status == GameStatus.GAME_END else "",
-            "civilian_word": self.civilian_word if self.game_status == GameStatus.GAME_END else ""
-=======
+            "civilian_word": self.civilian_word if self.game_status == GameStatus.GAME_END else "",
             "online_status": self.get_online_status()  # 各组在线状态
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
         }
 
     def get_public_status(self) -> Dict:

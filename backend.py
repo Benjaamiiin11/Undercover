@@ -230,13 +230,9 @@ def get_game_state():
 @app.route('/api/status', methods=['GET'])
 def public_status():
     """游戏方公共状态接口"""
-<<<<<<< HEAD
-    group_name = request.args.get('group_name', '').strip()
-=======
     # 可选的组名参数，用于更新活跃时间
     group_name = request.args.get('group_name', '').strip()
-    
->>>>>>> aa928af3e7dbc038124b2bb44cb54c293a504b68
+
     with game_lock:
         # 如果提供了组名，更新活跃时间
         if group_name:
