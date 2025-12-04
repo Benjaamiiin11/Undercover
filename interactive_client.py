@@ -188,10 +188,14 @@ class InteractiveClient:
         }
         game_status = status.get('status', 'waiting')
         phase_info = status.get('phase_info', '')
-        print(f"║  状态: {status_map.get(game_status, game_status)}".ljust(49) + "║")
-        if phase_info:
-            print(f"║  阶段: {phase_info}".ljust(49) + "║")
-        print(f"║  回合: 第 {status.get('round', 0)} 轮".ljust(49) + "║")
+
+        # 添加状态指示
+        if game_status == 'describing':
+            print(f"║  状态: 🎤 描述中".ljust(49) + "║")
+        elif game_status == 'voting':
+            print(f"║  状态: 🗳️ 投票中".ljust(49) + "║")
+        else:
+            print(f"║  状态: {status_map.get(game_status, game_status)}".ljust(49) + "║")
 
         # 检查是否有新游戏开始
         if status.get('new_game_started'):

@@ -7,7 +7,7 @@ import time
 import json
 
 # 配置服务器地址（请修改为实际的主持方服务器IP）
-BASE_URL = "http://192.168.240.90:5000"
+BASE_URL = "http://10.99.47.93:5000"
 
 def print_response(response, title=""):
     """打印响应结果"""
