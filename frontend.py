@@ -165,6 +165,25 @@ HTML_TEMPLATE = """
             text-align: center;
         }
 
+        /* 投票完成人数大号显示 */
+        .vote-count-display {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin: 5px 0;
+            padding: 10px;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid var(--border-color);
+        }
+
+        .vote-count-display span {
+            color: var(--warning-color);
+            font-size: 1.5em;
+        }
+
         /* 主要内容区域 - 使用flex确保不超出屏幕 */
         .content-area {
             flex: 1;
@@ -246,8 +265,18 @@ HTML_TEMPLATE = """
         }
 
         .player-card.undercover {
-            border-color: var(--danger-color);
+            border-color: var(--border-color);
             background: rgba(231, 76, 60, 0.08);
+        }
+
+        .player-card.undercover .player-name {
+            color: var(--danger-color);
+        }
+
+        .player-card.undercover.current-turn {
+            border-color: var(--danger-color);
+            animation: pulse-danger 1.5s infinite;
+            background: rgba(231, 76, 60, 0.12);
         }
 
         .player-card.eliminated {
@@ -270,6 +299,12 @@ HTML_TEMPLATE = """
             100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0); }
         }
 
+        @keyframes pulse-danger {
+            0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(231, 76, 60, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+        }
+
         .player-header {
             display: flex;
             justify-content: space-between;
@@ -283,6 +318,7 @@ HTML_TEMPLATE = """
             display: flex;
             align-items: center;
             gap: 5px;
+            color: var(--dark-color);
         }
 
         .player-role {
@@ -585,7 +621,7 @@ HTML_TEMPLATE = """
         .stats-cards {
             display: flex;
             gap: 10px;
-            margin-bottom: 10px;
+            margin-bottom: 5px;
             flex-shrink: 0;
         }
 
@@ -728,6 +764,11 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- 投票完成人数大号显示 -->
+        <div class="vote-count-display" id="vote-count-display">
+            投票完成: <span id="vote-completed">0</span>/<span id="vote-total">0</span>
+        </div>
+
         <!-- 统计卡片 -->
         <div class="stats-cards">
             <div class="stat-card">
@@ -842,12 +883,22 @@ HTML_TEMPLATE = """
             console.log('WebSocket 已连接');
             showAlert('success', '已连接到服务器');
             updateServerStatus(true);
+            // 请求初始状态
+            socket.emit('request_status');
+            socket.emit('request_timer');
         });
 
         // 接收状态更新推送
         socket.on('status_update', function(data) {
             updateRealTimeInfo(data);
             updateTimers(data);
+            updateVoteCountDisplay(data);
+        });
+
+        // 接收倒计时更新推送
+        socket.on('timer_update', function(data) {
+            updateTimers(data);
+            updateVoteCountDisplay(data);
         });
 
         // 接收完整游戏状态推送
@@ -919,11 +970,11 @@ HTML_TEMPLATE = """
         function updateGameStatus() {
             const status = gameData.status || 'waiting';
             const statusMap = {
-                'waiting': '等待注册',
-                'registered': '已注册',
-                'word_assigned': '词语已分配',
-                'describing': '描述阶段',
-                'voting': '投票阶段',
+                'waiting': '准备中',
+                'registered': '准备中',
+                'word_assigned': '准备中',
+                'describing': '描述中',
+                'voting': '投票中',
                 'round_end': '回合结束',
                 'game_end': '游戏结束'
             };
@@ -988,7 +1039,7 @@ HTML_TEMPLATE = """
                     currentVote = gameData.votes[round][name] || '';
                 }
 
-                // 玩家卡片
+                // 玩家卡片 - 只显示当前状态
                 html += `
                     <div class="player-card ${isUndercover ? 'undercover' : ''} ${isEliminated ? 'eliminated' : ''} ${isCurrentSpeaker ? 'current-turn' : ''}">
                         <div class="player-header">
@@ -1002,7 +1053,7 @@ HTML_TEMPLATE = """
 
                         <div class="player-status">
                             ${isCurrentSpeaker ? '<span class="status-badge status-speaking">发言中</span>' : ''}
-                            ${hasDescribed ? '<span class="status-badge status-described">已描述</span>' : ''}
+                            ${hasDescribed && !isCurrentSpeaker ? '<span class="status-badge status-described">已描述</span>' : ''}
                             ${hasVoted ? '<span class="status-badge status-voted">已投票</span>' : ''}
                             <span class="status-badge ${isOnline ? 'status-online' : 'status-offline'}">
                                 ${isOnline ? '在线' : '离线'}
@@ -1189,6 +1240,8 @@ HTML_TEMPLATE = """
 
             rounds.forEach(round => {
                 const result = allVoteResults[round];
+                const roundScores = result.round_scores || {};
+                const totalScores = result.total_scores || {};
 
                 html += `
                     <div class="result-item ${result.game_ended ? 'victory' : ''}">
@@ -1209,6 +1262,48 @@ HTML_TEMPLATE = """
                             <strong>被淘汰:</strong> ${result.eliminated.join(', ')}
                         </div>
                     `;
+                }
+
+                // 显示本轮各组成绩
+                if (Object.keys(roundScores).length > 0) {
+                    html += `
+                        <div style="margin: 10px 0; padding: 10px; background: rgba(0,0,0,0.05); border-radius: 5px;">
+                            <strong><i class="fas fa-star"></i> 本轮得分:</strong>
+                    `;
+
+                    Object.entries(roundScores).forEach(([group, score]) => {
+                        html += `
+                            <div style="display: flex; justify-content: space-between; padding: 2px 0;">
+                                <span>${group}</span>
+                                <span style="font-weight: bold; color: ${score > 0 ? 'var(--secondary-color)' : '#7f8c8d'}">${score > 0 ? '+' : ''}${score}分</span>
+                            </div>
+                        `;
+                    });
+
+                    html += `</div>`;
+                }
+
+                // 显示累计得分
+                if (Object.keys(totalScores).length > 0) {
+                    html += `
+                        <div style="margin: 10px 0; padding: 10px; background: rgba(243, 156, 18, 0.1); border-radius: 5px;">
+                            <strong><i class="fas fa-trophy"></i> 累计得分:</strong>
+                    `;
+
+                    // 按分数排序
+                    const sortedScores = Object.entries(totalScores).sort((a, b) => b[1] - a[1]);
+
+                    sortedScores.forEach(([group, score], index) => {
+                        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                        html += `
+                            <div style="display: flex; justify-content: space-between; padding: 3px 0; ${index === 0 ? 'font-weight: bold;' : ''}">
+                                <span>${medal} ${group}</span>
+                                <span style="color: var(--warning-color)">${score}分</span>
+                            </div>
+                        `;
+                    });
+
+                    html += `</div>`;
                 }
 
                 // 显示最高票数
@@ -1273,6 +1368,24 @@ HTML_TEMPLATE = """
             document.getElementById('vote-count').textContent = `${votedCount}/${activeCount}`;
         }
 
+        function updateVoteCountDisplay(data) {
+            const completed = data.voted_groups?.length || 0;
+            const total = data.active_groups?.length || data.describe_order?.length || 0;
+
+            document.getElementById('vote-completed').textContent = completed;
+            document.getElementById('vote-total').textContent = total;
+
+            // 根据投票完成情况改变颜色
+            const displayElement = document.getElementById('vote-count-display');
+            if (completed >= total && total > 0) {
+                displayElement.style.background = 'rgba(46, 204, 113, 0.1)';
+                displayElement.style.color = 'var(--secondary-color)';
+            } else {
+                displayElement.style.background = 'rgba(52, 152, 219, 0.1)';
+                displayElement.style.color = 'var(--primary-color)';
+            }
+        }
+
         function updateTimers(data) {
             const mainTimer = document.getElementById('main-timer');
             const descTimer = document.getElementById('desc-timer');
@@ -1280,38 +1393,44 @@ HTML_TEMPLATE = """
 
             // 主计时器显示最重要的倒计时
             if (data.status === 'describing') {
-                if (data.speaker_remaining_seconds !== undefined && data.speaker_remaining_seconds > 0) {
-                    mainTimer.textContent = `发言:${data.speaker_remaining_seconds}s`;
-                    descTimer.textContent = `阶段:${formatTime(data.remaining_seconds)}`;
+                if (data.speaker_remaining_seconds !== undefined && data.speaker_remaining_seconds >= 0) {
+                    mainTimer.textContent = `${data.speaker_remaining_seconds}s`;
+                    descTimer.textContent = `${formatTime(data.remaining_seconds)}`;
                     voteTimer.textContent = '--:--';
 
                     // 最后10秒红色闪烁
                     if (data.speaker_remaining_seconds <= 10) {
                         mainTimer.classList.add('timer-warning');
+                        mainTimer.style.color = 'var(--danger-color)';
                     } else {
                         mainTimer.classList.remove('timer-warning');
+                        mainTimer.style.color = '';
                     }
-                } else if (data.remaining_seconds !== undefined && data.remaining_seconds > 0) {
+                } else if (data.remaining_seconds !== undefined && data.remaining_seconds >= 0) {
                     mainTimer.textContent = `阶段:${formatTime(data.remaining_seconds)}`;
                     descTimer.textContent = formatTime(data.remaining_seconds);
                     voteTimer.textContent = '--:--';
 
                     if (data.remaining_seconds <= 10) {
                         mainTimer.classList.add('timer-warning');
+                        mainTimer.style.color = 'var(--danger-color)';
                     } else {
                         mainTimer.classList.remove('timer-warning');
+                        mainTimer.style.color = '';
                     }
                 }
             } else if (data.status === 'voting') {
-                if (data.remaining_seconds !== undefined && data.remaining_seconds > 0) {
-                    mainTimer.textContent = `投票:${formatTime(data.remaining_seconds)}`;
+                if (data.remaining_seconds !== undefined && data.remaining_seconds >= 0) {
+                    mainTimer.textContent = `${formatTime(data.remaining_seconds)}`;
                     descTimer.textContent = '--:--';
                     voteTimer.textContent = formatTime(data.remaining_seconds);
 
                     if (data.remaining_seconds <= 10) {
                         mainTimer.classList.add('timer-warning');
+                        mainTimer.style.color = 'var(--danger-color)';
                     } else {
                         mainTimer.classList.remove('timer-warning');
+                        mainTimer.style.color = '';
                     }
                 }
             } else {
@@ -1319,10 +1438,11 @@ HTML_TEMPLATE = """
                 descTimer.textContent = '--:--';
                 voteTimer.textContent = '--:--';
                 mainTimer.classList.remove('timer-warning');
+                mainTimer.style.color = '';
             }
 
             function formatTime(seconds) {
-                if (seconds === undefined) return '--:--';
+                if (seconds === undefined || seconds < 0) return '--:--';
                 const minutes = Math.floor(seconds / 60);
                 const secs = seconds % 60;
                 return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -1440,7 +1560,7 @@ HTML_TEMPLATE = """
         }
 
         function resetGame() {
-            if (confirm('确定要重置游戏吗？重置后游戏状态将清除，历史记录也会被清空。')) {
+            if (confirm('确定要重置游戏吗？')) {
                 fetch('/api/game/reset', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'}
