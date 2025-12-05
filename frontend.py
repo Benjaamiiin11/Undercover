@@ -1,6 +1,5 @@
 """
-前端界面模块 - 改进版
-所有重要信息都在一个屏幕内显示，无需滚动
+前端界面模块
 """
 from flask import Flask, render_template_string, jsonify
 import os
@@ -9,7 +8,7 @@ import threading
 import time
 from datetime import datetime
 
-# 前端服务器（用于展示界面）
+# 前端服务器
 frontend_app = Flask(__name__)
 
 # 后端API地址
@@ -35,7 +34,6 @@ def post_backend_data(endpoint, data):
         return response.json()
     except:
         return None
-
 
 # HTML模板
 HTML_TEMPLATE = """
@@ -72,7 +70,7 @@ HTML_TEMPLATE = """
             min-height: 100vh;
             padding: 0;
             overflow: hidden;
-            font-size: 14px;
+            font-size: 16px;
         }
 
         /* 主容器 */
@@ -180,40 +178,40 @@ HTML_TEMPLATE = """
             align-items: center;
             justify-content: center;
         }
-        
+
         .game-state-display.state-preparing {
             color: var(--primary-color);
             border-color: var(--primary-color);
         }
-        
+
         .game-state-display.state-describing {
             color: var(--primary-color);
             border-color: var(--primary-color);
             animation: pulse-glow 2s infinite;
         }
-        
+
         .game-state-display.state-voting {
             color: var(--warning-color);
             border-color: var(--warning-color);
         }
-        
+
         .game-state-display.state-round-end {
             color: #9b59b6;
             border-color: #9b59b6;
         }
-        
+
         .game-state-display.state-game-end {
             color: var(--secondary-color);
             border-color: var(--secondary-color);
             animation: celebration 1s ease-in-out 3;
         }
-        
+
         @keyframes pulse-glow {
             0% { box-shadow: 0 0 5px rgba(52, 152, 219, 0.5); }
             50% { box-shadow: 0 0 15px rgba(52, 152, 219, 0.8); }
             100% { box-shadow: 0 0 5px rgba(52, 152, 219, 0.5); }
         }
-        
+
         @keyframes celebration {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
@@ -228,7 +226,7 @@ HTML_TEMPLATE = """
             min-height: 0;
         }
 
-        /* 左侧玩家区域 */
+        /* 玩家区域 */
         .players-section {
             flex: 1;
             background: var(--card-bg);
@@ -251,17 +249,15 @@ HTML_TEMPLATE = """
             border-bottom: 2px solid var(--border-color);
         }
 
-        /* 玩家网格 */
         .players-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 10px;
             overflow-y: auto;
             padding-right: 5px;
             flex: 1;
         }
 
-        /* 隐藏滚动条但保留功能 */
         .players-grid::-webkit-scrollbar {
             width: 5px;
         }
@@ -284,8 +280,24 @@ HTML_TEMPLATE = """
             transition: all 0.3s ease;
             border: 2px solid transparent;
             position: relative;
-            overflow: hidden;
+            overflow-y: auto;
+            max-height: 300px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* 玩家卡片滚动条样式 */
+        .player-card::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .player-card::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.05);
+            border-radius: 4px;
+        }
+
+        .player-card::-webkit-scrollbar-thumb {
+            background: rgba(52, 152, 219, 0.5);
+            border-radius: 4px;
         }
 
         .player-card:hover {
@@ -325,7 +337,7 @@ HTML_TEMPLATE = """
             position: absolute;
             top: 5px;
             right: 5px;
-            font-size: 1.2em;
+            font-size: 1.6em;
         }
 
         @keyframes pulse-border {
@@ -349,7 +361,7 @@ HTML_TEMPLATE = """
 
         .player-name {
             font-weight: bold;
-            font-size: 1.1em;
+            font-size: 1.2em;
             display: flex;
             align-items: center;
             gap: 5px;
@@ -359,7 +371,7 @@ HTML_TEMPLATE = """
         .player-role {
             padding: 2px 6px;
             border-radius: 10px;
-            font-size: 0.8em;
+            font-size: 0.9em;
             font-weight: bold;
         }
 
@@ -378,13 +390,13 @@ HTML_TEMPLATE = """
             flex-wrap: wrap;
             gap: 5px;
             margin-bottom: 8px;
-            font-size: 0.85em;
+            font-size: 1em;
         }
 
         .status-badge {
             padding: 2px 6px;
             border-radius: 3px;
-            font-size: 0.8em;
+            font-size: 0.9em;
             color: white;
         }
 
@@ -394,12 +406,25 @@ HTML_TEMPLATE = """
         .status-online { background: var(--secondary-color); }
         .status-offline { background: #95a5a6; }
 
+        /* 玩家信息栏 */
+        .player-info {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 8px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 1em;
+            font-weight: bold;
+            color: #7f8c8d;
+        }
+
         .player-content {
             background: rgba(0,0,0,0.05);
             padding: 8px;
             border-radius: 5px;
             margin-top: 8px;
-            font-size: 0.9em;
+            font-size: 1em;
         }
 
         .player-description {
@@ -413,14 +438,10 @@ HTML_TEMPLATE = """
         }
 
         .player-footer {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 8px;
-            font-size: 0.85em;
-            color: #7f8c8d;
+            display: none; 
         }
 
-        /* 右侧信息区域 - 三栏同时显示 */
+        /* 信息区域 */
         .info-section {
             flex: 1;
             display: flex;
@@ -664,11 +685,15 @@ HTML_TEMPLATE = """
             flex: 1;
             background: var(--card-bg);
             border-radius: 8px;
-            padding: 12px;
+            padding: 10px;
             text-align: center;
             transition: all 0.3s ease;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px; 
         }
 
         .stat-card:hover {
@@ -678,8 +703,8 @@ HTML_TEMPLATE = """
 
         .stat-card h4 {
             color: #7f8c8d;
-            font-size: 0.9em;
-            margin-bottom: 5px;
+            font-size: 1.2em;
+            margin: 0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -690,6 +715,7 @@ HTML_TEMPLATE = """
             font-size: 1.6em;
             font-weight: bold;
             color: var(--dark-color);
+            line-height: 1; 
         }
 
         /* 响应式调整 */
@@ -719,6 +745,10 @@ HTML_TEMPLATE = """
             .game-controls {
                 flex-wrap: wrap;
                 justify-content: center;
+            }
+
+            .player-card {
+                max-height: 250px;
             }
         }
 
@@ -826,7 +856,7 @@ HTML_TEMPLATE = """
 
         <!-- 主要内容区域 -->
         <div class="content-area">
-            <!-- 左侧玩家区域 -->
+            <!-- 玩家区域 -->
             <div class="players-section">
                 <h3><i class="fas fa-users"></i> 玩家状态 (<span id="player-count">0</span>)</h3>
                 <div class="players-grid" id="players-grid">
@@ -838,7 +868,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- 右侧信息区域 - 三栏同时显示 -->
+            <!-- 信息区域 -->
             <div class="info-section">
                 <div class="info-tabs-container">
                     <div class="info-tabs">
@@ -1000,6 +1030,19 @@ HTML_TEMPLATE = """
             updateGameResults();
             updateGameStats();
             updateGameStateDisplay(gameData); 
+            updateRealTimeInfo(gameData);
+            updateBottomCounters(); 
+        }
+
+        function updateBottomCounters() {
+            // 从当前的 gameData 中获取数据
+            const describedCount = gameData.described_groups?.length || 0;
+            const orderCount = gameData.describe_order?.length || 0;
+            const votedCount = gameData.voted_groups?.length || 0;
+            const activeCount = gameData.active_groups?.length || orderCount;
+
+            document.getElementById('desc-count').textContent = `${describedCount}/${orderCount}`;
+            document.getElementById('vote-count').textContent = `${votedCount}/${activeCount}`;
         }
 
         function updateGameStatus() {
@@ -1021,6 +1064,7 @@ HTML_TEMPLATE = """
         function updatePlayers() {
             const playersGrid = document.getElementById('players-grid');
             const groups = gameData.groups || {};
+            const gameStatus = gameData.status || 'waiting';
 
             document.getElementById('player-count').textContent = Object.keys(groups).length;
 
@@ -1052,7 +1096,15 @@ HTML_TEMPLATE = """
 
             sortedGroups.forEach(([name, info]) => {
                 const isEliminated = eliminatedGroups.includes(name) || info.eliminated;
-                const isUndercover = info.role === 'undercover';
+
+                const isUndercover = (gameStatus === 'word_assigned' || 
+                                     gameStatus === 'describing' || 
+                                     gameStatus === 'voting' || 
+                                     gameStatus === 'round_end' || 
+                                     gameStatus === 'game_end') 
+                                     ? (info.role === 'undercover') 
+                                     : false;
+
                 const isCurrentSpeaker = currentSpeaker === name;
                 const hasDescribed = describedGroups.includes(name);
                 const hasVoted = votedGroups.includes(name);
@@ -1074,16 +1126,41 @@ HTML_TEMPLATE = """
                     currentVote = gameData.votes[round][name] || '';
                 }
 
-                // 玩家卡片 - 只显示当前状态
+                // 构建角色显示逻辑
+                let roleDisplay = '';
+                let roleBadge = '';
+
+                if (gameStatus === 'word_assigned' || 
+                    gameStatus === 'describing' || 
+                    gameStatus === 'voting' || 
+                    gameStatus === 'round_end' || 
+                    gameStatus === 'game_end') {
+                    
+                    if (info.role) {
+                        const isUndercoverRole = info.role === 'undercover';
+                        roleDisplay = isUndercoverRole ? '<i class="fas fa-user-secret"></i>' : '';
+                        roleBadge = `
+                            <div class="player-role ${isUndercoverRole ? 'role-undercover' : 'role-civilian'}">
+                                ${isUndercoverRole ? '卧底' : '平民'}
+                            </div>
+                        `;
+                    }
+                } else {
+                    roleBadge = `
+                        <div class="player-role" style="background: #95a5a6; color: white;">
+                            未开始
+                        </div>
+                    `;
+                }
+
+                // 玩家卡片
                 html += `
                     <div class="player-card ${isUndercover ? 'undercover' : ''} ${isEliminated ? 'eliminated' : ''} ${isCurrentSpeaker ? 'current-turn' : ''}">
                         <div class="player-header">
                             <div class="player-name">
-                                ${name} ${isUndercover ? '<i class="fas fa-user-secret"></i>' : ''}
+                                ${name} ${roleDisplay}
                             </div>
-                            <div class="player-role ${isUndercover ? 'role-undercover' : 'role-civilian'}">
-                                ${isUndercover ? '卧底' : '平民'}
-                            </div>
+                            ${roleBadge}
                         </div>
 
                         <div class="player-status">
@@ -1093,6 +1170,12 @@ HTML_TEMPLATE = """
                             <span class="status-badge ${isOnline ? 'status-online' : 'status-offline'}">
                                 ${isOnline ? '在线' : '离线'}
                             </span>
+                        </div>
+
+                        <!-- 玩家信息栏 -->
+                        <div class="player-info">
+                            <span>总分: ${score}</span>
+                            <span>卧底: ${info.undercover_count || 0}次</span>
                         </div>
 
                         ${currentDescription ? `
@@ -1110,11 +1193,6 @@ HTML_TEMPLATE = """
                                 </div>
                             </div>
                         ` : ''}
-
-                        <div class="player-footer">
-                            <span>得分: ${score}</span>
-                            <span>卧底: ${info.undercover_count || 0}次</span>
-                        </div>
                     </div>
                 `;
             });
@@ -1181,7 +1259,7 @@ HTML_TEMPLATE = """
             // 合并投票结果和当前投票数据
             const allVotes = { ...allVoteResults };
 
-            // 添加当前回合的投票记录（如果还没处理）
+            // 添加当前回合的投票记录
             const currentRound = gameData.current_round;
             if (gameData.votes && gameData.votes[currentRound] && !allVotes[currentRound]) {
                 const currentVotes = gameData.votes[currentRound];
@@ -1300,17 +1378,27 @@ HTML_TEMPLATE = """
                 }
 
                 // 显示本轮各组成绩
-                if (Object.keys(roundScores).length > 0) {
+                if (result.round_scores && Object.keys(result.round_scores).length > 0) {
                     html += `
                         <div style="margin: 10px 0; padding: 10px; background: rgba(0,0,0,0.05); border-radius: 5px;">
                             <strong><i class="fas fa-star"></i> 本轮得分:</strong>
                     `;
 
-                    Object.entries(roundScores).forEach(([group, score]) => {
+                    Object.entries(result.round_scores).forEach(([group, score]) => {
+                        // 区分得分类型
+                        let scoreType = '生存分';
+                        if (result.game_ended && result.winner === 'undercover' && group === result.undercover_group) {
+                            if (score >= 4) {  // 1生存分 + 3胜利分
+                                scoreType = '生存分+胜利分';
+                            }
+                        }
+
                         html += `
                             <div style="display: flex; justify-content: space-between; padding: 2px 0;">
-                                <span>${group}</span>
-                                <span style="font-weight: bold; color: ${score > 0 ? 'var(--secondary-color)' : '#7f8c8d'}">${score > 0 ? '+' : ''}${score}分</span>
+                                <span>${group} <small style="color: #7f8c8d">(${scoreType})</small></span>
+                                <span style="font-weight: bold; color: ${score > 0 ? 'var(--secondary-color)' : '#7f8c8d'}">
+                                    ${score > 0 ? '+' : ''}${score}分
+                                </span>
                             </div>
                         `;
                     });
@@ -1394,14 +1482,22 @@ HTML_TEMPLATE = """
             document.getElementById('current-speaker-name').textContent = currentSpeaker;
 
             // 更新计数
-            const describedCount = data.described_groups?.length || 0;
-            const orderCount = data.describe_order?.length || 0;
-            const votedCount = data.voted_groups?.length || 0;
-            const activeCount = data.active_groups?.length || orderCount;
+            const describedGroups = data.described_groups || [];
+            const describeOrder = data.describe_order || [];
+            const votedGroups = data.voted_groups || [];
+            const activeGroups = data.active_groups || [];
+
+            // 描述完成人数
+            const describedCount = describedGroups.length;
+            const orderCount = describeOrder.length;
+
+            // 投票完成人数
+            const votedCount = votedGroups.length;
+            const activeCount = activeGroups.length || orderCount;
 
             document.getElementById('desc-count').textContent = `${describedCount}/${orderCount}`;
             document.getElementById('vote-count').textContent = `${votedCount}/${activeCount}`;
-            
+
             // 更新游戏状态显示
             updateGameStateDisplay(data);
         }
@@ -1417,35 +1513,14 @@ HTML_TEMPLATE = """
             const currentRound = data.current_round || 1;
             const eliminatedGroups = data.eliminated_groups || [];
             const currentSpeakerIndex = data.current_speaker_index || 0;
-            
+
             let displayText = '';
             let displayClass = '';
             let bgColor = '';
-            
-            // 检查是否是游戏结束状态，并且检查是否有最新的投票结果
-            const isGameEnd = status === 'game_end';
-            let winner = '';
-            
-            // 如果游戏结束，尝试从最新的投票结果中获取正确的胜利方
-            if (isGameEnd) {
-                // 从最新的投票结果中获取胜利方
-                const latestRound = Math.max(...Object.keys(allVoteResults).map(Number).filter(n => !isNaN(n)), 0);
-                if (latestRound > 0 && allVoteResults[latestRound]) {
-                    const latestResult = allVoteResults[latestRound];
-                    winner = latestResult.winner || data.winner || '';
-                } else {
-                    winner = data.winner || '';
-                }
-                
-                // 调试日志
-                console.log('游戏结束状态 - 数据来源:', {
-                    status: status,
-                    dataWinner: data.winner,
-                    latestRoundWinner: latestRound > 0 ? (allVoteResults[latestRound]?.winner) : '无',
-                    finalWinner: winner
-                });
-            }
-            
+
+            const latestRound = Math.max(...Object.keys(allVoteResults).map(Number).filter(n => !isNaN(n)), 0);
+            const latestResult = latestRound > 0 ? allVoteResults[latestRound] : null;
+
             switch(status) {
                 case 'waiting':
                 case 'registered':
@@ -1454,25 +1529,21 @@ HTML_TEMPLATE = """
                     displayClass = 'state-preparing';
                     bgColor = 'rgba(52, 152, 219, 0.1)';
                     break;
-                                    
+
                 case 'describing':
                     if (describeOrder.length > 0) {
-                        // 参考updateSpeakingOrder的样式显示发言顺序
                         let html = '<div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-left: 20px;">';
-                        
+
                         describeOrder.forEach((group, index) => {
                             const isCurrent = group === currentSpeaker;
                             const isEliminated = eliminatedGroups.includes(group);
                             const hasDescribed = describedGroups.includes(group);
                             const isBeforeCurrent = index < currentSpeakerIndex;
-                            
-                            // 参考updateSpeakingOrder的样式逻辑
-                            let className = 'speaker-item';
+
                             let text = group;
                             let style = '';
-                            
+
                             if (isEliminated) {
-                                // 被淘汰的玩家
                                 style = `
                                     padding: 3px 8px;
                                     border-radius: 4px;
@@ -1485,7 +1556,6 @@ HTML_TEMPLATE = """
                                 `;
                                 text = '💀 ' + text;
                             } else if (isCurrent) {
-                                // 当前发言者
                                 style = `
                                     padding: 5px 10px;
                                     border-radius: 6px;
@@ -1499,7 +1569,6 @@ HTML_TEMPLATE = """
                                 `;
                                 text = '🎤 ' + text;
                             } else if (isBeforeCurrent || hasDescribed) {
-                                // 已完成描述的玩家
                                 style = `
                                     padding: 3px 8px;
                                     border-radius: 4px;
@@ -1511,7 +1580,6 @@ HTML_TEMPLATE = """
                                 `;
                                 text = '✅ ' + text;
                             } else {
-                                // 待描述的玩家
                                 style = `
                                     padding: 3px 8px;
                                     border-radius: 4px;
@@ -1523,35 +1591,32 @@ HTML_TEMPLATE = """
                                 `;
                                 text = '⬜ ' + text;
                             }
-                            
+
                             html += `<span style="${style}">${text}</span>`;
-                            
-                            // 在玩家之间添加箭头（除了最后一个）
+
                             if (index < describeOrder.length - 1) {
                                 html += `<span style="color: #7f8c8d; font-size: 1.2em; margin: 0 4px;">→</span>`;
                             }
                         });
-                        
+
                         html += '</div>';
-                        displayText = `🗣️ 描述顺序：${html}`;
+                        displayText = `🗣️ 描述中：${html}`;
                         displayClass = 'state-describing';
                         bgColor = 'rgba(52, 152, 219, 0.15)';
                     } else {
-                        displayText = '🗣️ 描述阶段...';
+                        displayText = `🗣️ 描述阶段...`;
                         displayClass = 'state-describing';
                         bgColor = 'rgba(52, 152, 219, 0.15)';
                     }
                     break;
-                                            
+
                 case 'voting':
                     const votedCount = votedGroups.length;
                     const totalCount = activeGroups.length || describeOrder.length;
-                    
-                    // 去掉百分比，只显示数量
-                    displayText = `🗳️ 投票中 - 完成: ${votedCount}/${totalCount}`;
+
+                    displayText = `🗳️ 投票中 (${votedCount}/${totalCount})`;
                     displayClass = 'state-voting';
-                    
-                    // 根据完成比例改变颜色
+
                     if (votedCount >= totalCount && totalCount > 0) {
                         bgColor = 'rgba(46, 204, 113, 0.2)';
                     } else if (votedCount >= Math.ceil(totalCount / 2)) {
@@ -1560,27 +1625,30 @@ HTML_TEMPLATE = """
                         bgColor = 'rgba(52, 152, 219, 0.2)';
                     }
                     break;
-                                            
+
                 case 'round_end':
-                    displayText = `🏁 第${currentRound}回合结束`;
+                    if (latestResult) {
+                        if (latestResult.eliminated && latestResult.eliminated.length > 0) {
+                            displayText = `🏁 ${latestResult.eliminated.join(', ')} 被淘汰，游戏继续`;
+                        } else {
+                            displayText = '🏁 无人淘汰，游戏继续';
+                        }
+                    } else {
+                        displayText = `🏁 第${currentRound}回合结束`;
+                    }
                     displayClass = 'state-round-end';
                     bgColor = 'rgba(155, 89, 182, 0.1)';
                     break;
-                                            
+
                 case 'game_end':
                     let winnerText = '';
-                    
-                    // 使用从投票结果中获取的winner，如果为空则使用data.winner
-                    const finalWinner = winner || data.winner || '';
-                    
-                    // 调试信息
-                    console.log('显示游戏结束 - 最终胜利方:', {
-                        finalWinner: finalWinner,
-                        fromAllVoteResults: winner,
-                        fromData: data.winner
-                    });
-                    
-                    if (finalWinner === 'undercover' || finalWinner === '卧底') {
+                    let winner = '';
+
+                    if (latestResult) {
+                        winner = latestResult.winner || '';
+                    }
+
+                    if (winner === 'undercover' || winner === '卧底') {
                         winnerText = '🎭 卧底胜利';
                         bgColor = 'rgba(231, 76, 60, 0.1)';
                         displayClass = 'state-game-end undercover-victory';
@@ -1591,19 +1659,18 @@ HTML_TEMPLATE = """
                     }
                     displayText = `🎊 游戏结束 - ${winnerText}`;
                     break;
-                                            
+
                 default:
                     displayText = `🔄 ${status}`;
                     displayClass = 'state-other';
                     bgColor = 'rgba(149, 165, 166, 0.1)';
             }
-            
+
             // 更新显示内容
             displayElement.innerHTML = displayText;
             displayElement.className = 'game-state-display ' + displayClass;
             displayElement.style.background = bgColor;
-            
-            // 如果正在描述，高亮当前发言者
+
             if (status === 'describing' && currentSpeaker) {
                 document.getElementById('current-speaker-name').textContent = currentSpeaker;
                 document.getElementById('current-speaker-name').style.color = 'var(--primary-color)';
@@ -1614,7 +1681,7 @@ HTML_TEMPLATE = """
             const mainTimer = document.getElementById('main-timer');
             const descTimer = document.getElementById('desc-timer');
             const voteTimer = document.getElementById('vote-timer');
-        
+
             // 清除所有警告样式
             mainTimer.classList.remove('timer-warning');
             descTimer.classList.remove('timer-warning');
@@ -1622,17 +1689,16 @@ HTML_TEMPLATE = """
             mainTimer.style.color = '';
             descTimer.style.color = '';
             voteTimer.style.color = '';
-        
-            // 主计时器显示最重要的倒计时
+
+            // 主计时器
             if (data.status === 'describing') {
                 if (data.speaker_remaining_seconds !== undefined && data.speaker_remaining_seconds >= 0) {
-                    // 使用speaker_remaining_seconds作为主计时器
                     mainTimer.textContent = `${data.speaker_remaining_seconds}s`;
-                    
-                    // 底部信息栏也显示相同的时间
+
+                    // 底部信息栏
                     descTimer.textContent = `${data.speaker_remaining_seconds}s`;
                     voteTimer.textContent = '--:--';
-        
+
                     // 最后10秒红色闪烁
                     if (data.speaker_remaining_seconds <= 10) {
                         mainTimer.classList.add('timer-warning');
@@ -1641,13 +1707,12 @@ HTML_TEMPLATE = """
                         descTimer.style.color = 'var(--danger-color)';
                     }
                 } else if (data.remaining_seconds !== undefined && data.remaining_seconds >= 0) {
-                    // 如果没有speaker_remaining_seconds，使用remaining_seconds
                     const timeStr = formatTime(data.remaining_seconds);
-                    
+
                     mainTimer.textContent = timeStr;
                     descTimer.textContent = timeStr;
                     voteTimer.textContent = '--:--';
-        
+
                     if (data.remaining_seconds <= 10) {
                         mainTimer.classList.add('timer-warning');
                         mainTimer.style.color = 'var(--danger-color)';
@@ -1663,11 +1728,11 @@ HTML_TEMPLATE = """
             } else if (data.status === 'voting') {
                 if (data.remaining_seconds !== undefined && data.remaining_seconds >= 0) {
                     const timeStr = formatTime(data.remaining_seconds);
-                    
+
                     mainTimer.textContent = timeStr;
                     descTimer.textContent = '--:--';
                     voteTimer.textContent = timeStr;
-        
+
                     if (data.remaining_seconds <= 10) {
                         mainTimer.classList.add('timer-warning');
                         mainTimer.style.color = 'var(--danger-color)';
@@ -1685,7 +1750,7 @@ HTML_TEMPLATE = """
                 voteTimer.textContent = '--:--';
             }
         }
-        
+
         function formatTime(seconds) {
             if (seconds === undefined || seconds < 0) return '--:--';
             const minutes = Math.floor(seconds / 60);
@@ -1705,7 +1770,6 @@ HTML_TEMPLATE = """
         }
 
         function showAlert(type, message) {
-            // 移除现有的提示
             const existingAlert = document.querySelector('.alert');
             if (existingAlert) {
                 existingAlert.remove();
@@ -1753,7 +1817,7 @@ HTML_TEMPLATE = """
             .then(resp => {
                 if (resp && resp.code === 200) {
                     showAlert('success', resp.message || '游戏已开始！');
-                    // 清空历史投票结果（新游戏开始）
+                    // 清空历史投票结果
                     allVoteResults = {};
                     fetchGameState();
                 } else {

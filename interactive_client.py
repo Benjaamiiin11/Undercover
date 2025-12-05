@@ -326,7 +326,7 @@ class InteractiveClient:
         print("=" * 60)
 
     def wait_for_game_start(self):
-        """等待游戏开始（简化版本）"""
+        """等待游戏开始"""
         print(f"\n等待游戏开始...")
 
         while True:
@@ -465,12 +465,12 @@ class InteractiveClient:
         # 注册
         if not self.register():
             print("注册失败，请检查服务器连接")
-            return True  # 返回True让主循环可以重新连接
+            return True
 
         # 等待游戏开始
         if not self.wait_for_game_start():
             print("等待游戏开始失败")
-            return True  # 返回True让主循环可以重新连接
+            return True
 
         # 游戏主循环
         while True:
@@ -480,7 +480,7 @@ class InteractiveClient:
             # 检查游戏是否被重置
             if game_status == 'waiting' or game_status == 'registered':
                 if not self.handle_game_reset():
-                    return True  # 返回True让主循环可以重新连接
+                    return True
                 continue
 
             if game_status == 'game_end':

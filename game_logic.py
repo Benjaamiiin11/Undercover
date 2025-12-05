@@ -67,7 +67,7 @@ class GameLogic:
             "role": None,  # "undercover" 或 "civilian"
             "word": "",
             "registered_time": datetime.now().isoformat(),
-            "eliminated": False  # 新增：淘汰状态
+            "eliminated": False
         }
 
         # 初始化统计和分数
@@ -98,7 +98,7 @@ class GameLogic:
         if self.game_status != GameStatus.REGISTERED:
             return False
 
-        # 清空淘汰组（新游戏开始，重置所有淘汰状态）
+        # 清空淘汰组
         self.eliminated_groups = []
 
         # 更新所有组的淘汰状态
@@ -152,10 +152,13 @@ class GameLogic:
     def start_round(self) -> List[str]:
         """
         开始新回合，随机排序（只包括未淘汰的组）
-        :return: 描述顺序列表
         """
         if self.game_status not in [GameStatus.WORD_ASSIGNED, GameStatus.ROUND_END]:
             return []
+
+        # 如果当前状态是ROUND_END，增加回合数
+        if self.game_status == GameStatus.ROUND_END:
+            self.current_round += 1
 
         # 获取未淘汰的组
         active_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
@@ -174,7 +177,7 @@ class GameLogic:
         # 重置发言者索引
         self.current_speaker_index = 0
 
-        # 设置描述阶段截止时间（现在实时计算）
+        # 设置描述阶段截止时间
         self.phase_deadline = datetime.now() + timedelta(seconds=DESCRIBE_TIMEOUT)
 
         # 设置第一个发言者的截止时间
@@ -187,7 +190,6 @@ class GameLogic:
     def submit_description(self, group_name: str, description: str) -> Tuple[bool, str]:
         """
         提交描述
-        修改：被淘汰的组不能发言
         """
         # 检查是否被淘汰
         if group_name in self.eliminated_groups:
@@ -226,7 +228,7 @@ class GameLogic:
         # 移动到下一个发言者
         self.current_speaker_index += 1
 
-        # 设置下一个发言者的截止时间（实时更新）
+        # 设置下一个发言者的截止时间
         if self.current_speaker_index < len(self.describe_order):
             self.speaker_deadline = datetime.now() + timedelta(seconds=SPEAKER_TIMEOUT)
         else:
@@ -235,9 +237,9 @@ class GameLogic:
         # 检查是否所有人都提交了
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
         if len(self.descriptions[self.current_round]) >= len(active_groups):
-            # 进入投票阶段前，检测是否有组未提交（可能因为网络问题）
+            # 进入投票阶段前，检测是否有组未提交
             self.detect_missing_submissions()
-            # 设置投票阶段截止时间（实时更新）
+            # 设置投票阶段截止时间
             self.phase_deadline = datetime.now() + timedelta(seconds=VOTE_TIMEOUT)
             self.speaker_deadline = None
             self.game_status = GameStatus.VOTING
@@ -250,7 +252,6 @@ class GameLogic:
     def submit_vote(self, voter_group: str, target_group: str) -> Tuple[bool, str]:
         """
         提交投票
-        修改：被淘汰的组不能投票
         """
         # 检查是否被淘汰
         if voter_group in self.eliminated_groups:
@@ -288,10 +289,7 @@ class GameLogic:
         return True, "投票成功"
 
     def process_voting_result(self) -> Dict:
-        """
-        处理投票结果，判定淘汰和游戏状态
-        修改：增加详细投票信息
-        """
+        """处理投票结果，判定淘汰和游戏状态"""
         if self.game_status != GameStatus.VOTING:
             return {"error": "当前不在投票阶段"}
 
@@ -322,20 +320,20 @@ class GameLogic:
         result = {
             "round": self.current_round,
             "vote_count": vote_count,
-            "vote_details": vote_details,  # 新增：每个人的投票详情
+            "vote_details": vote_details,
             "max_voted_groups": max_voted_groups,
             "max_votes": max_votes,
             "eliminated": [],
             "game_ended": False,
             "winner": None,
-            "message": "",  # 提示信息
-            "undercover_group": None,  # 游戏结束时揭示卧底
-            "undercover_word": "",  # 卧底词
-            "civilian_word": "",  # 平民词
-            "round_scores": {},  # 本轮得分
-            "total_scores": self.scores.copy(),  # 总得分
-            "active_groups": active_groups,  # 投票时的活跃组
-            "voted_groups": list(round_votes.keys())  # 已投票的组
+            "message": "",
+            "undercover_group": self.undercover_group if self.game_status != GameStatus.WAITING else None,
+            "undercover_word": "",
+            "civilian_word": "",
+            "round_scores": {},
+            "total_scores": self.scores.copy(),
+            "active_groups": active_groups,
+            "voted_groups": list(round_votes.keys())
         }
 
         # 判定结果
@@ -358,7 +356,6 @@ class GameLogic:
                 result["message"] = f"🎉 投票结果：{eliminated} 被投出，TA是卧底！\n"
                 result["message"] += f"得票情况：{eliminated} 获得 {max_votes} 票\n"
                 result["message"] += "🎊 平民胜利！"
-                result["undercover_group"] = self.undercover_group
                 result["undercover_word"] = self.undercover_word
                 result["civilian_word"] = self.civilian_word
                 self.game_status = GameStatus.GAME_END
@@ -373,28 +370,26 @@ class GameLogic:
                     result["winner"] = "undercover"
                     result["message"] = f"😈 投票结果：{eliminated} 是平民，被投出后平民只剩{len(remaining_civilians)}组\n"
                     result["message"] += f"🎭 卧底 {self.undercover_group} 胜利！"
-                    result["undercover_group"] = self.undercover_group
                     result["undercover_word"] = self.undercover_word
                     result["civilian_word"] = self.civilian_word
                     self.game_status = GameStatus.GAME_END
                 else:
-                    # 继续下一轮（返回第3步）
+                    # 继续下一轮
                     result["message"] = f"👋 投票结果：{eliminated} 被投出，TA是平民。\n"
                     result["message"] += f"得票情况：{eliminated} 获得 {max_votes} 票\n"
-                    result["message"] += f"游戏继续，进入第 {self.current_round + 1} 轮。"
-                    self.current_round += 1
-                    self.game_status = GameStatus.ROUND_END
+                    result["message"] += "游戏继续。"
+                    # 不立即增加回合数，等待主持人点击"开始回合"
+                    self.game_status = GameStatus.ROUND_END  # 保持当前回合状态
 
         elif len(max_voted_groups) == 2:
             # 情况c：票数最多的组有2组，进入下一轮
             groups_str = ' 和 '.join(max_voted_groups)
             result["message"] = f"⚖️ 投票结果：{groups_str} 票数相同（各{max_votes}票），无人淘汰。\n"
-            result["message"] += f"进入第 {self.current_round + 1} 轮。"
+            result["message"] += "进入下一轮。"
 
             # 计算本轮得分（平局情况）
             self._calculate_round_scores(result)
 
-            self.current_round += 1
             self.game_status = GameStatus.ROUND_END
 
         elif len(max_voted_groups) >= 3:
@@ -416,7 +411,6 @@ class GameLogic:
                 result["winner"] = "undercover"
                 result["message"] = f"😈 投票结果：{', '.join(max_voted_groups)} 票数相同且都是平民，全部淘汰！\n"
                 result["message"] += f"🎭 卧底 {self.undercover_group} 胜利！"
-                result["undercover_group"] = self.undercover_group
                 result["undercover_word"] = self.undercover_word
                 result["civilian_word"] = self.civilian_word
                 self.game_status = GameStatus.GAME_END
@@ -427,7 +421,6 @@ class GameLogic:
                 # 计算本轮得分（平局情况）
                 self._calculate_round_scores(result)
 
-                self.current_round += 1
                 self.game_status = GameStatus.ROUND_END
 
         # 清除倒计时
@@ -439,55 +432,43 @@ class GameLogic:
 
     def _calculate_round_scores(self, result: Dict):
         """
-        计算本轮得分并更新总得分
+        得分规则：
+        1. 卧底得分 = 胜利分（如果平民只剩1组，得3分） + 生存分（每生存一轮得1分）
+        2. 平民得分 = 生存分（每生存一轮得1分）
         """
-        round_scores = {}
+        round_scores = {}  # 初始化每轮得分字典
 
-        # 得分规则：
-        # 1. 存活到本轮结束：+1分
-        # 2. 投出卧底（如果是平民）：+2分
-        # 3. 卧底存活到最后：+3分
-        # 4. 平民存活到最后：+1分
-
-        active_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
+        # 本轮被淘汰的组
         eliminated_this_round = result.get('eliminated', [])
+        # 游戏是否结束
+        game_ended = result.get('game_ended', False)
+        winner = result.get('winner')
 
+        # 计算本轮结束后存活的平民组数量
+        remaining_civilians = 0
+        for group_name in self.groups.keys():
+            if (group_name != self.undercover_group and
+                    group_name not in self.eliminated_groups and
+                    group_name not in eliminated_this_round):
+                remaining_civilians += 1
+
+        # 遍历所有组计算本轮得分
         for group_name in self.groups.keys():
             round_score = 0
 
-            # 1. 存活到本轮结束：+1分
-            if group_name not in eliminated_this_round:
+            # 规则1：生存分 - 所有存活到本轮结束的组获得1分
+            if group_name not in eliminated_this_round and group_name not in self.eliminated_groups:
                 round_score += 1
 
-            # 2. 如果本轮投出了卧底，给投票给卧底的平民加分
-            if (result.get('winner') == 'civilian' and
-                    group_name != self.undercover_group and
-                    group_name in self.votes.get(self.current_round, {})):
-
-                vote_target = self.votes[self.current_round][group_name]
-                if vote_target == self.undercover_group:
-                    round_score += 2  # 投出卧底奖励
-
-            # 3. 卧底存活到最后奖励
-            if (result.get('game_ended') and
-                    result.get('winner') == 'undercover' and
-                    group_name == self.undercover_group):
+            # 规则2：胜利分 - 卧底胜利时（平民剩余≤1组）加3分
+            if group_name == self.undercover_group and remaining_civilians <= 1:
                 round_score += 3
-
-            # 4. 平民存活到最后奖励
-            if (result.get('game_ended') and
-                    result.get('winner') == 'civilian' and
-                    group_name != self.undercover_group and
-                    group_name not in self.eliminated_groups):
-                round_score += 1
 
             round_scores[group_name] = round_score
 
-            # 更新总得分
-            if group_name in self.scores:
-                self.scores[group_name] += round_score
-            else:
-                self.scores[group_name] = round_score
+        # 更新总得分（累加本轮得分）
+        for group_name, score in round_scores.items():
+            self.scores[group_name] = self.scores.get(group_name, 0) + score
 
         result["round_scores"] = round_scores
         result["total_scores"] = self.scores.copy()
@@ -706,13 +687,13 @@ class GameLogic:
         """面向游戏方的公开状态"""
         active_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
 
-        # 计算阶段剩余时间（实时计算）
+        # 计算阶段剩余时间
         remaining_seconds = None
         if self.phase_deadline:
             delta = self.phase_deadline - datetime.now()
             remaining_seconds = max(0, int(delta.total_seconds()))
 
-        # 计算当前发言者剩余时间（实时计算）
+        # 计算当前发言者剩余时间
         speaker_remaining = None
         if self.speaker_deadline and self.game_status == GameStatus.DESCRIBING:
             delta = self.speaker_deadline - datetime.now()
