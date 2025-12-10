@@ -13,6 +13,7 @@ import time
 import random
 from datetime import datetime
 from threading import Thread
+from typing import Dict, Optional
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -26,6 +27,9 @@ game = GameLogic()
 
 # 线程锁，保证线程安全
 game_lock = threading.Lock()
+
+# WebSocket连接追踪：group_name -> set of session_ids
+group_sockets: Dict[str, set] = {}  # 每个组对应的WebSocket连接ID集合
 
 # 词库加载
 def load_word_pairs():
@@ -72,7 +76,10 @@ def timer_broadcast_loop():
     while timer_running:
         try:
             with game_lock:
+                websocket_status = get_websocket_status()
                 status = game.get_public_status()
+                # 更新在线状态（使用WebSocket连接状态）
+                status['online_status'] = game.get_online_status(websocket_status)
                 # 只有描述或投票阶段才广播倒计时
                 if status.get('status') in ['describing', 'voting']:
                     # 添加精确的时间信息
@@ -113,14 +120,40 @@ def stop_timer_broadcast():
 def broadcast_status():
     """广播游戏状态变化"""
     with game_lock:
+        websocket_status = get_websocket_status()
         status = game.get_public_status()
+        # 更新在线状态（使用WebSocket连接状态）
+        status['online_status'] = game.get_online_status(websocket_status)
     socketio.emit('status_update', status)
+
+
+def get_websocket_status() -> Optional[Dict[str, bool]]:
+    """
+    获取各组基于WebSocket的连接状态
+    如果没有WebSocket连接，则返回None，让get_online_status使用HTTP活跃时间降级方案
+    """
+    # 检查是否有任何WebSocket连接
+    has_any_connection = any(len(socket_ids) > 0 for socket_ids in group_sockets.values())
+    
+    if not has_any_connection:
+        # 没有任何WebSocket连接，返回None，使用HTTP活跃时间降级
+        return None
+    
+    # 有WebSocket连接，返回WebSocket连接状态
+    websocket_status = {}
+    for group_name in game.groups.keys():
+        socket_ids = group_sockets.get(group_name, set())
+        websocket_status[group_name] = len(socket_ids) > 0
+    return websocket_status
 
 
 def broadcast_game_state():
     """广播完整游戏状态（主持方用）"""
     with game_lock:
+        websocket_status = get_websocket_status()
         state = game.get_game_state()
+        # 更新在线状态（使用WebSocket连接状态）
+        state['online_status'] = game.get_online_status(websocket_status)
     socketio.emit('game_state_update', state)
 
 
@@ -196,20 +229,29 @@ def start_game():
         return make_response({}, 400, '词语不能为空，且词库未加载')
 
     with game_lock:
-        success = game.start_game(undercover_word, civilian_word)
+        websocket_status = get_websocket_status()
+        success = game.start_game(undercover_word, civilian_word, websocket_status)
         if success:
             # 游戏开始后不启动倒计时，等待玩家准备后再开始回合
             # 广播状态变化
             socketio.start_background_task(broadcast_status)
             socketio.start_background_task(broadcast_game_state)
+            
+            # 只返回在线玩家的角色信息
+            online_status = game.get_online_status(websocket_status)
+            online_groups = {name: info['role'] for name, info in game.groups.items() 
+                           if online_status.get(name, False) and info.get('role') is not None}
+            
             return make_response({
                 'undercover_group': game.undercover_group,
-                'groups': {name: info['role'] for name, info in game.groups.items()},
+                'groups': online_groups,
                 'civilian_word': civilian_word,
-                'undercover_word': undercover_word
-            }, 200, '游戏已开始，等待玩家准备')
+                'undercover_word': undercover_word,
+                'excluded_groups': [name for name in game.groups.keys() 
+                                  if not online_status.get(name, False)]
+            }, 200, '游戏已开始，等待玩家准备（离线玩家已排除）')
         else:
-            return make_response({}, 400, '无法开始游戏：游戏状态不正确或没有注册的组')
+            return make_response({}, 400, '无法开始游戏：游戏状态不正确或没有在线的组')
 
 
 @app.route('/api/game/round/start', methods=['POST'])
@@ -257,7 +299,10 @@ def submit_description():
             }, 200, message)
         else:
             # 返回当前状态
+            websocket_status = get_websocket_status()
             status = game.get_public_status()
+            # 更新在线状态（使用WebSocket连接状态）
+            status['online_status'] = game.get_online_status(websocket_status)
             return make_response({
                 'current_speaker': game.get_current_speaker(),
                 'status': status.get('status'),
@@ -374,7 +419,10 @@ def get_game_state():
     with game_lock:
         # 获取状态时自动检测未提交的组
         missing_reports = game.detect_missing_submissions()
+        websocket_status = get_websocket_status()
         state = game.get_game_state()
+        # 更新在线状态（使用WebSocket连接状态）
+        state['online_status'] = game.get_online_status(websocket_status)
         if missing_reports:
             # 如果有新的异常记录，广播状态更新
             socketio.start_background_task(broadcast_game_state)
@@ -391,7 +439,10 @@ def public_status():
         # 如果提供了组名，更新活跃时间
         if group_name:
             game.update_activity(group_name)
+        websocket_status = get_websocket_status()
         status = game.get_public_status()
+        # 更新在线状态（使用WebSocket连接状态）
+        status['online_status'] = game.get_online_status(websocket_status)
         # 添加是否为淘汰组的信息
         if group_name:
             status['is_eliminated'] = group_name in game.eliminated_groups
@@ -525,15 +576,74 @@ def get_scores():
 def handle_connect():
     """客户端连接时发送当前状态"""
     with game_lock:
+        websocket_status = get_websocket_status()
         status = game.get_public_status()
+        # 更新在线状态（使用WebSocket连接状态）
+        status['online_status'] = game.get_online_status(websocket_status)
     emit('status_update', status)
+
+
+@socketio.on('register_socket')
+def handle_register_socket(data):
+    """客户端注册WebSocket连接（关联group_name和socket）"""
+    group_name = data.get('group_name', '').strip()
+    if not group_name:
+        emit('error', {'message': '组名不能为空'})
+        return
+    
+    sid = request.sid  # 获取当前连接的session ID
+    
+    with game_lock:
+        # 将socket ID关联到组名
+        if group_name not in group_sockets:
+            group_sockets[group_name] = set()
+        group_sockets[group_name].add(sid)
+        
+        # 更新活跃时间
+        game.update_activity(group_name)
+    
+    emit('socket_registered', {'group_name': group_name, 'status': 'success'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """客户端断开连接时自动检测并处理"""
+    sid = request.sid
+    
+    with game_lock:
+        # 找到断开连接的组
+        disconnected_groups = []
+        for group_name, socket_ids in list(group_sockets.items()):
+            if sid in socket_ids:
+                socket_ids.remove(sid)
+                # 如果这个组没有其他连接了
+                if len(socket_ids) == 0:
+                    disconnected_groups.append(group_name)
+                    # 处理断开连接（视为退出游戏）
+                    result = game.handle_disconnect(group_name)
+                    if result:
+                        # 如果有游戏结果（游戏结束），广播结果
+                        if result.get('game_ended'):
+                            stop_timer_broadcast()
+                            socketio.emit('vote_result', result)
+                        # 广播状态更新
+                        socketio.start_background_task(broadcast_status)
+                        socketio.start_background_task(broadcast_game_state)
+        
+        # 清理空的socket集合
+        for group_name in disconnected_groups:
+            if group_name in group_sockets and len(group_sockets[group_name]) == 0:
+                del group_sockets[group_name]
 
 
 @socketio.on('request_status')
 def handle_request_status():
     """客户端请求状态更新"""
     with game_lock:
+        websocket_status = get_websocket_status()
         status = game.get_public_status()
+        # 更新在线状态（使用WebSocket连接状态）
+        status['online_status'] = game.get_online_status(websocket_status)
     emit('status_update', status)
 
 
@@ -541,7 +651,10 @@ def handle_request_status():
 def handle_request_timer():
     """客户端请求倒计时更新"""
     with game_lock:
+        websocket_status = get_websocket_status()
         status = game.get_public_status()
+        # 更新在线状态（使用WebSocket连接状态）
+        status['online_status'] = game.get_online_status(websocket_status)
         # 添加精确的时间信息
         now = datetime.now()
         if game.phase_deadline:
