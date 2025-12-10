@@ -166,7 +166,8 @@ def broadcast_descriptions():
         for desc in descriptions:
             result.append({
                 'group': desc['group'],
-                'description': desc['description']
+                'description': desc['description'],
+                'time': desc.get('time', '')  # 包含时间字段
             })
         
         socketio.emit('descriptions_update', {
@@ -409,6 +410,19 @@ def submit_vote():
                     socketio.emit('vote_result', vote_result)
                     # 广播分数更新（因为分数可能变化）
                     socketio.start_background_task(broadcast_scores)
+                    
+                    # 如果游戏未结束且处于 ROUND_END 状态，自动开始下一回合
+                    if not vote_result.get('game_ended') and game.game_status.value == 'round_end':
+                        order = game.start_round()
+                        if order:
+                            # 启动倒计时广播
+                            start_timer_broadcast()
+                            # 广播状态变化
+                            socketio.start_background_task(broadcast_status)
+                            socketio.start_background_task(broadcast_game_state)
+                            # 广播描述列表更新（新回合开始时描述列表被清空）
+                            socketio.start_background_task(broadcast_descriptions)
+                    
                     return make_response({
                         'auto_processed': True,
                         'vote_result': vote_result
@@ -483,6 +497,19 @@ def process_voting():
         socketio.emit('vote_result', result)
         # 广播分数更新（因为分数可能变化）
         socketio.start_background_task(broadcast_scores)
+        
+        # 如果游戏未结束且处于 ROUND_END 状态，自动开始下一回合
+        if not result.get('game_ended') and game.game_status.value == 'round_end':
+            order = game.start_round()
+            if order:
+                # 启动倒计时广播
+                start_timer_broadcast()
+                # 广播状态变化
+                socketio.start_background_task(broadcast_status)
+                socketio.start_background_task(broadcast_game_state)
+                # 广播描述列表更新（新回合开始时描述列表被清空）
+                socketio.start_background_task(broadcast_descriptions)
+        
         return make_response(result, 200, '投票结果已生成')
 
 
@@ -493,7 +520,9 @@ def get_game_state():
         return _admin_forbidden_response()
     with game_lock:
         websocket_status = get_websocket_status()
-        state = game.get_game_state(websocket_status)
+        state = game.get_game_state()
+        # 更新在线状态（使用WebSocket连接状态）
+        state['online_status'] = game.get_online_status(websocket_status)
         return make_response(state)
 
 
