@@ -262,8 +262,6 @@ class GameLogic:
         # 检查是否所有人都提交了
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
         if len(self.descriptions[self.current_round]) >= len(active_groups):
-            # 进入投票阶段前，检测是否有组未提交
-            self.detect_missing_submissions()
             # 设置投票阶段截止时间
             self.phase_deadline = datetime.now() + timedelta(seconds=VOTE_TIMEOUT)
             self.speaker_deadline = None
@@ -358,9 +356,6 @@ class GameLogic:
         """处理投票结果，判定淘汰和游戏状态"""
         if self.game_status != GameStatus.VOTING:
             return {"error": "当前不在投票阶段"}
-
-        # 检测未提交的组并自动记录异常
-        missing_reports = self.detect_missing_submissions()
 
         round_votes = self.votes[self.current_round]
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
@@ -744,48 +739,13 @@ class GameLogic:
         
         return None
 
-    def detect_missing_submissions(self) -> List[Dict]:
-        """检测未提交的组，自动记录异常（避免重复记录）"""
-        missing_reports = []
-
-        if self.game_status == GameStatus.DESCRIBING:
-            # 只检查当前应该发言的组，而不是所有未提交的组
-            current_speaker = self.get_current_speaker()
-            if current_speaker:
-                # 检查当前发言者是否已提交
-                submitted_groups = [d["group"] for d in self.descriptions.get(self.current_round, [])]
-                if current_speaker not in submitted_groups:
-                    # 检查是否超时
-                    if self.speaker_deadline and datetime.now() > self.speaker_deadline:
-                        # 检查是否已经记录过这个异常，避免重复记录
-                        if not self._has_existing_report(current_speaker, 'timeout', self.current_round):
-                            # 自动记录异常
-                            report = self.add_report(
-                                current_speaker,
-                                'timeout',
-                                f'描述阶段超时未提交（第{self.current_round}轮，当前发言者：{current_speaker}）'
-                            )
-                            missing_reports.append(report)
-
-        elif self.game_status == GameStatus.VOTING:
-            # 检查是否有组未投票
-            active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
-            voted_groups = list(self.votes.get(self.current_round, {}).keys())
-
-            for group in active_groups:
-                if group not in voted_groups:
-                    # 检查是否超时
-                    if self.phase_deadline and datetime.now() > self.phase_deadline:
-                        # 检查是否已经记录过这个异常，避免重复记录
-                        if not self._has_existing_report(group, 'timeout', self.current_round):
-                            report = self.add_report(
-                                group,
-                                'timeout',
-                                f'投票阶段超时未提交（第{self.current_round}轮）'
-                            )
-                            missing_reports.append(report)
-
-        return missing_reports
+    def detect_missing_submissions(self, websocket_status: Optional[Dict[str, bool]] = None) -> List[Dict]:
+        """
+        检测未提交的组（已移除超时异常上报功能）
+        保留方法以保持API兼容性，但不再自动上报异常
+        """
+        # 不再自动上报超时异常，只返回空列表
+        return []
 
     def _calculate_scores(self):
         """

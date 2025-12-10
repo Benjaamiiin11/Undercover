@@ -417,15 +417,8 @@ def get_game_state():
     if not _require_admin():
         return _admin_forbidden_response()
     with game_lock:
-        # 获取状态时自动检测未提交的组
-        missing_reports = game.detect_missing_submissions()
         websocket_status = get_websocket_status()
-        state = game.get_game_state()
-        # 更新在线状态（使用WebSocket连接状态）
-        state['online_status'] = game.get_online_status(websocket_status)
-        if missing_reports:
-            # 如果有新的异常记录，广播状态更新
-            socketio.start_background_task(broadcast_game_state)
+        state = game.get_game_state(websocket_status)
         return make_response(state)
 
 
