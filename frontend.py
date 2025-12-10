@@ -219,10 +219,28 @@ HTML_TEMPLATE = """
         /* 主要内容区域 */
         .content-area {
             flex: 1;
-            display: flex;
+            display: grid;
+            grid-template-columns: 280px 1fr 350px;
             gap: 10px;
             overflow: hidden;
             min-height: 0;
+        }
+
+        /* 左侧控制栏 */
+        .left-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+        }
+
+        .left-sidebar::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .left-sidebar::-webkit-scrollbar-thumb {
+            background: var(--primary-color);
+            border-radius: 5px;
         }
 
         /* 玩家区域 */
@@ -443,11 +461,11 @@ HTML_TEMPLATE = """
 
         /* 信息区域 */
         .info-section {
-            flex: 1;
             display: flex;
             flex-direction: column;
             gap: 10px;
             min-height: 0;
+            width: 100%;
         }
 
         .info-tabs-container {
@@ -457,22 +475,57 @@ HTML_TEMPLATE = """
             min-height: 0;
         }
 
-        .info-tabs {
+        /* 标签页导航按钮 */
+        .tab-nav {
             display: flex;
-            gap: 10px;
-            height: 100%;
+            gap: 5px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
+
+        .tab-nav-btn {
+            flex: 1;
+            padding: 10px 15px;
+            border: none;
+            background: var(--light-color);
+            color: var(--dark-color);
+            cursor: pointer;
+            border-radius: 6px 6px 0 0;
+            font-weight: bold;
+            transition: all 0.2s;
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+        }
+
+        .tab-nav-btn:hover {
+            background: #e0e5ea;
+        }
+
+        .tab-nav-btn.active {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .info-tabs {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
             min-height: 0;
+            background: var(--card-bg);
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid var(--border-color);
         }
 
         .tab-pane {
             flex: 1;
-            background: var(--card-bg);
-            border-radius: 8px;
-            overflow: hidden;
-            display: flex;
+            display: none;
             flex-direction: column;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .tab-pane.active {
+            display: flex;
         }
 
         .tab-header {
@@ -625,14 +678,75 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             padding: 15px;
             display: flex;
-            gap: 15px;
-            align-items: center;
+            flex-direction: column;
+            gap: 10px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             border: 1px solid var(--border-color);
         }
 
+        .words-section h4 {
+            margin: 0;
+            color: var(--primary-color);
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* 控制按钮容器 */
+        .control-buttons-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* 倒计时显示区域 */
+        .timer-display {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid var(--border-color);
+        }
+
+        .timer-display h4 {
+            margin: 0 0 10px 0;
+            color: var(--primary-color);
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .timer-item {
+            background: var(--light-color);
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        .timer-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .timer-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .timer-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .timer-item.voting .timer-value {
+            color: var(--warning-color);
+        }
+
         .word-input {
-            flex: 1;
             display: flex;
             flex-direction: column;
             gap: 5px;
@@ -1056,14 +1170,10 @@ HTML_TEMPLATE = """
                 <span>谁是卧底 - 主持控制台</span>
                 <div class="status-indicator">
                     <div id="game-status" class="status-badge">等待注册</div>
-                    <div class="timer-display" id="main-timer">--:--</div>
                 </div>
             </div>
 
             <div class="game-controls">
-                <button class="control-btn btn-start" onclick="openMultiRoundModal()">
-                    <i class="fas fa-play"></i> 开始多轮游戏
-                </button>
                 <button class="control-btn btn-reset" onclick="resetGame()">
                     <i class="fas fa-redo"></i> 重置游戏
                 </button>
@@ -1097,7 +1207,44 @@ HTML_TEMPLATE = """
 
         <!-- 主要内容区域 -->
         <div class="content-area">
-            <!-- 玩家区域 -->
+            <!-- 左侧控制栏 -->
+            <div class="left-sidebar">
+                <!-- 词语设置 -->
+                <div class="words-section">
+                    <h4><i class="fas fa-book"></i> 词语设置</h4>
+                    <div class="word-input">
+                        <label for="undercover-word"><i class="fas fa-user-secret"></i> 卧底词</label>
+                        <input type="text" id="undercover-word" placeholder="留空自动选择">
+                    </div>
+                    <div class="word-input">
+                        <label for="civilian-word"><i class="fas fa-users"></i> 平民词</label>
+                        <input type="text" id="civilian-word" placeholder="留空自动选择">
+                    </div>
+                    <div class="control-buttons-group">
+                        <button class="control-btn btn-start" onclick="startSingleGame()">
+                            <i class="fas fa-play"></i> 开始游戏
+                        </button>
+                        <button class="control-btn btn-multi" onclick="openMultiRoundModal()">
+                            <i class="fas fa-layer-group"></i> 多轮游戏
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 倒计时显示 -->
+                <div class="timer-display">
+                    <h4><i class="fas fa-clock"></i> 倒计时</h4>
+                    <div class="timer-item">
+                        <div class="timer-label">描述阶段</div>
+                        <div class="timer-value" id="desc-timer-display">--:--</div>
+                    </div>
+                    <div class="timer-item voting">
+                        <div class="timer-label">投票阶段</div>
+                        <div class="timer-value" id="vote-timer-display">--:--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间玩家区域 -->
             <div class="players-section">
                 <h3><i class="fas fa-users"></i> 玩家状态 (<span id="player-count">0</span>)</h3>
                 <div class="players-grid" id="players-grid">
@@ -1109,15 +1256,18 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- 信息区域 -->
+            <!-- 右侧信息区域 -->
             <div class="info-section">
                 <div class="info-tabs-container">
+                    <!-- 标签页导航按钮 -->
+                    <div class="tab-nav">
+                        <button class="tab-nav-btn active" onclick="switchTab('descriptions')"><i class="fas fa-comments"></i> 描述</button>
+                        <button class="tab-nav-btn" onclick="switchTab('votes')"><i class="fas fa-vote-yea"></i> 投票</button>
+                        <button class="tab-nav-btn" onclick="switchTab('results')"><i class="fas fa-poll"></i> 结果</button>
+                    </div>
                     <div class="info-tabs">
                         <!-- 描述记录 -->
-                        <div class="tab-pane">
-                            <div class="tab-header">
-                                <i class="fas fa-comments"></i> 描述记录
-                            </div>
+                        <div class="tab-pane active" id="tab-descriptions">
                             <div class="tab-content" id="descriptions-content">
                                 <div class="description-item">
                                     <div class="desc-header">暂无描述</div>
@@ -1126,10 +1276,7 @@ HTML_TEMPLATE = """
                         </div>
 
                         <!-- 投票记录 -->
-                        <div class="tab-pane">
-                            <div class="tab-header">
-                                <i class="fas fa-vote-yea"></i> 投票记录
-                            </div>
+                        <div class="tab-pane" id="tab-votes">
                             <div class="tab-content" id="votes-content">
                                 <div class="round-vote-section">
                                     <div class="round-title">暂无投票记录</div>
@@ -1138,10 +1285,7 @@ HTML_TEMPLATE = """
                         </div>
 
                         <!-- 游戏结果 -->
-                        <div class="tab-pane">
-                            <div class="tab-header">
-                                <i class="fas fa-poll"></i> 游戏结果
-                            </div>
+                        <div class="tab-pane" id="tab-results">
                             <div class="tab-content" id="results-content">
                                 <div class="result-item">
                                     <div class="result-header">暂无游戏结果</div>
@@ -1153,26 +1297,10 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- 词语设置区域 -->
-        <div class="words-section">
-            <div class="word-input">
-                <label for="undercover-word"><i class="fas fa-user-secret"></i> 卧底词</label>
-                <input type="text" id="undercover-word" placeholder="输入卧底词">
-            </div>
-            <div class="word-input">
-                <label for="civilian-word"><i class="fas fa-users"></i> 平民词</label>
-                <input type="text" id="civilian-word" placeholder="输入平民词">
-            </div>
-            <button class="control-btn btn-start" onclick="startSingleGame()" style="height: fit-content;">
-                <i class="fas fa-play"></i> 开始游戏
-            </button>
-        </div>
-
         <!-- 底部信息栏 -->
         <div class="bottom-bar">
             <div>服务器: <span id="server-status" class="glow">已连接</span></div>
             <div>当前发言者: <span id="current-speaker-name" class="glow">--</span></div>
-            <div>描述倒计时: <span id="desc-timer">--:--</span> | 投票倒计时: <span id="vote-timer">--:--</span></div>
             <div>描述: <span id="desc-count">0/0</span> | 投票: <span id="vote-count">0/0</span></div>
         </div>
     </div>
@@ -2155,7 +2283,7 @@ HTML_TEMPLATE = """
                     break;
 
                 case 'voting':
-                    // 投票阶段：只显示投票信息，不显示描述阶段的发言顺序
+                    // 投票阶段：显示投票进度
                     const votedCount = votedGroups.length;
                     const totalCount = activeGroups.length || describeOrder.length;
 
@@ -2167,11 +2295,8 @@ HTML_TEMPLATE = """
                     } else if (votedCount >= Math.ceil(totalCount / 2)) {
                         bgColor = 'rgba(243, 156, 18, 0.2)';
                     } else {
-                        bgColor = 'rgba(52, 152, 219, 0.2)';
+                        bgColor = 'rgba(243, 156, 18, 0.15)';
                     }
-                    // 投票阶段清除当前发言者显示
-                    document.getElementById('current-speaker-name').textContent = '--';
-                    document.getElementById('current-speaker-name').style.color = '';
                     break;
 
                 case 'round_end':
@@ -2238,75 +2363,94 @@ HTML_TEMPLATE = """
 
         function updateTimers(data) {
             const mainTimer = document.getElementById('main-timer');
-            const descTimer = document.getElementById('desc-timer');
-            const voteTimer = document.getElementById('vote-timer');
+            const descTimer = document.getElementById('desc-timer-display');
+            const voteTimer = document.getElementById('vote-timer-display');
+
+            // 检查元素是否存在
+            if (!descTimer || !voteTimer) {
+                console.warn('倒计时元素未找到:', {descTimer, voteTimer});
+                return;
+            }
 
             // 清除所有警告样式
-            mainTimer.classList.remove('timer-warning');
-            descTimer.classList.remove('timer-warning');
-            voteTimer.classList.remove('timer-warning');
-            mainTimer.style.color = '';
-            descTimer.style.color = '';
-            voteTimer.style.color = '';
+            if (mainTimer) {
+                mainTimer.classList.remove('timer-warning');
+                mainTimer.style.color = '';
+            }
 
             // 主计时器
             if (data.status === 'describing') {
                 if (data.speaker_remaining_seconds !== undefined && data.speaker_remaining_seconds >= 0) {
-                    mainTimer.textContent = `${data.speaker_remaining_seconds}s`;
+                    if (mainTimer) mainTimer.textContent = `${data.speaker_remaining_seconds}s`;
 
-                    // 底部信息栏
+                    // 左侧倒计时显示
                     descTimer.textContent = `${data.speaker_remaining_seconds}s`;
                     voteTimer.textContent = '--:--';
 
                     // 最后10秒红色闪烁
                     if (data.speaker_remaining_seconds <= 10) {
-                        mainTimer.classList.add('timer-warning');
-                        mainTimer.style.color = 'var(--danger-color)';
-                        descTimer.classList.add('timer-warning');
+                        if (mainTimer) {
+                            mainTimer.classList.add('timer-warning');
+                            mainTimer.style.color = 'var(--danger-color)';
+                        }
                         descTimer.style.color = 'var(--danger-color)';
+                    } else {
+                        descTimer.style.color = '';
                     }
                 } else if (data.remaining_seconds !== undefined && data.remaining_seconds >= 0) {
                     const timeStr = formatTime(data.remaining_seconds);
 
-                    mainTimer.textContent = timeStr;
+                    if (mainTimer) mainTimer.textContent = timeStr;
                     descTimer.textContent = timeStr;
                     voteTimer.textContent = '--:--';
 
                     if (data.remaining_seconds <= 10) {
-                        mainTimer.classList.add('timer-warning');
-                        mainTimer.style.color = 'var(--danger-color)';
-                        descTimer.classList.add('timer-warning');
+                        if (mainTimer) {
+                            mainTimer.classList.add('timer-warning');
+                            mainTimer.style.color = 'var(--danger-color)';
+                        }
                         descTimer.style.color = 'var(--danger-color)';
+                    } else {
+                        descTimer.style.color = '';
                     }
                 } else {
                     // 没有倒计时数据时
-                    mainTimer.textContent = '--:--';
+                    if (mainTimer) mainTimer.textContent = '--:--';
                     descTimer.textContent = '--:--';
                     voteTimer.textContent = '--:--';
+                    descTimer.style.color = '';
+                    voteTimer.style.color = '';
                 }
             } else if (data.status === 'voting') {
                 if (data.remaining_seconds !== undefined && data.remaining_seconds >= 0) {
                     const timeStr = formatTime(data.remaining_seconds);
 
-                    mainTimer.textContent = timeStr;
+                    if (mainTimer) mainTimer.textContent = timeStr;
                     descTimer.textContent = '--:--';
                     voteTimer.textContent = timeStr;
 
                     if (data.remaining_seconds <= 10) {
-                        mainTimer.classList.add('timer-warning');
-                        mainTimer.style.color = 'var(--danger-color)';
-                        voteTimer.classList.add('timer-warning');
+                        if (mainTimer) {
+                            mainTimer.classList.add('timer-warning');
+                            mainTimer.style.color = 'var(--danger-color)';
+                        }
                         voteTimer.style.color = 'var(--danger-color)';
+                    } else {
+                        voteTimer.style.color = '';
                     }
                 } else {
-                    mainTimer.textContent = '--:--';
+                    if (mainTimer) mainTimer.textContent = '--:--';
                     descTimer.textContent = '--:--';
                     voteTimer.textContent = '--:--';
+                    descTimer.style.color = '';
+                    voteTimer.style.color = '';
                 }
             } else {
-                mainTimer.textContent = '--:--';
+                if (mainTimer) mainTimer.textContent = '--:--';
                 descTimer.textContent = '--:--';
                 voteTimer.textContent = '--:--';
+                descTimer.style.color = '';
+                voteTimer.style.color = '';
             }
         }
 
@@ -2326,6 +2470,17 @@ HTML_TEMPLATE = """
                 statusElement.textContent = '已断开';
                 statusElement.style.color = 'var(--danger-color)';
             }
+        }
+
+        // 标签页切换函数
+        function switchTab(tabName) {
+            // 切换导航按钮状态
+            document.querySelectorAll('.tab-nav-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // 切换内容面板
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+            document.getElementById('tab-' + tabName).classList.add('active');
         }
 
         function showAlert(type, message) {
@@ -2423,29 +2578,18 @@ HTML_TEMPLATE = """
         function submitMultiRoundGame() {
             const roundCount = parseInt(document.getElementById('round-count').value) || 1;
             
-            // 收集所有轮次的词语
+            // 收集所有轮次的词语（允许为空，后端会自动选词）
             const rounds = [];
-            let isValid = true;
             
             for (let i = 1; i <= roundCount; i++) {
                 const undercoverWord = document.getElementById(`undercover-word-round-${i}`).value.trim();
                 const civilianWord = document.getElementById(`civilian-word-round-${i}`).value.trim();
-                
-                if (!undercoverWord || !civilianWord) {
-                    showAlert('danger', `第 ${i} 轮的卧底词和平民词不能为空`);
-                    isValid = false;
-                    break;
-                }
                 
                 rounds.push({
                     round: i,
                     undercover_word: undercoverWord,
                     civilian_word: civilianWord
                 });
-            }
-            
-            if (!isValid) {
-                return;
             }
             
             // 关闭模态框
@@ -2493,6 +2637,11 @@ HTML_TEMPLATE = """
                 if (resp && resp.code === 200) {
                     showAlert('success', resp.message || '游戏已开始！');
                     nextRoundCheckDone = false; // 新游戏开始，重置检查标志
+                    // 显示自动选择的词语
+                    if (resp.data && resp.data.civilian_word && resp.data.undercover_word) {
+                        document.getElementById('civilian-word').value = resp.data.civilian_word;
+                        document.getElementById('undercover-word').value = resp.data.undercover_word;
+                    }
                     fetchGameState();
                 } else {
                     showAlert('danger', '错误：' + (resp ? resp.message : '后端无响应'));
@@ -2532,17 +2681,12 @@ HTML_TEMPLATE = """
                 const nextRound = multiRoundConfig[nextRoundIndex];
                 currentRoundIndex = nextRoundIndex;
                 
-                // 清除可能冲突的轮次映射（因为新游戏开始后，回合号会重置为1）
-                // 但只清除当前回合号的映射，保留其他回合号的映射
-                // 实际上，我们不应该清除，因为不同的轮次可能有相同的回合号
-                // 问题应该通过组合键来解决，或者通过检测新游戏来更新映射
-                
                 // 保存到 localStorage
                 saveToLocalStorage();
                 
                 showAlert('info', `准备开始第 ${nextRoundIndex + 1} 轮游戏...`);
                 
-                // 开始下一轮游戏（不清空历史数据）
+                // 开始下一轮游戏（允许自动选词，不清空历史数据）
                 startGameWithWords(
                     nextRound.undercover_word, 
                     nextRound.civilian_word,
@@ -2557,10 +2701,11 @@ HTML_TEMPLATE = """
             const undercoverWord = document.getElementById('undercover-word').value.trim();
             const civilianWord = document.getElementById('civilian-word').value.trim();
             
-            if (!undercoverWord || !civilianWord) {
-                showAlert('danger', '请输入卧底词和平民词');
-                return;
-            }
+            // 允许词语为空，后端会自动从词库选择
+            // if (!undercoverWord || !civilianWord) {
+            //     showAlert('danger', '请输入卧底词和平民词');
+            //     return;
+            // }
             
             // 清空多轮配置（单轮游戏不需要多轮配置）
             multiRoundConfig = null;

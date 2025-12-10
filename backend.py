@@ -10,6 +10,7 @@ import os
 import threading
 import socket
 import time
+import random
 from datetime import datetime
 from threading import Thread
 
@@ -25,6 +26,40 @@ game = GameLogic()
 
 # 线程锁，保证线程安全
 game_lock = threading.Lock()
+
+# 词库加载
+def load_word_pairs():
+    """从words.txt加载词语对"""
+    word_pairs = []
+    words_file = 'words.txt'
+    
+    if not os.path.exists(words_file):
+        print(f"⚠️  词库文件 {words_file} 不存在")
+        return word_pairs
+    
+    try:
+        with open(words_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # 跳过空行和注释
+                if not line or line.startswith('#'):
+                    continue
+                # 解析词语对（格式：平民词|卧底词）
+                if '|' in line:
+                    parts = line.split('|')
+                    if len(parts) == 2:
+                        civilian_word = parts[0].strip()
+                        undercover_word = parts[1].strip()
+                        if civilian_word and undercover_word:
+                            word_pairs.append((civilian_word, undercover_word))
+        print(f"✓ 成功加载 {len(word_pairs)} 对词语")
+    except Exception as e:
+        print(f"❌ 加载词库失败: {e}")
+    
+    return word_pairs
+
+# 全局词库
+WORD_PAIRS = load_word_pairs()
 
 # 倒计时推送线程
 timer_thread = None
@@ -153,8 +188,12 @@ def start_game():
     undercover_word = data.get('undercover_word', '').strip()
     civilian_word = data.get('civilian_word', '').strip()
 
-    if not undercover_word or not civilian_word:
-        return make_response({}, 400, '词语不能为空')
+    # 如果词语为空，从词库随机选择
+    if (not undercover_word or not civilian_word) and WORD_PAIRS:
+        civilian_word, undercover_word = random.choice(WORD_PAIRS)
+        print(f"🎲 自动选词: 平民词={civilian_word}, 卧底词={undercover_word}")
+    elif not undercover_word or not civilian_word:
+        return make_response({}, 400, '词语不能为空，且词库未加载')
 
     with game_lock:
         success = game.start_game(undercover_word, civilian_word)
@@ -165,7 +204,9 @@ def start_game():
             socketio.start_background_task(broadcast_game_state)
             return make_response({
                 'undercover_group': game.undercover_group,
-                'groups': {name: info['role'] for name, info in game.groups.items()}
+                'groups': {name: info['role'] for name, info in game.groups.items()},
+                'civilian_word': civilian_word,
+                'undercover_word': undercover_word
             }, 200, '游戏已开始，等待玩家准备')
         else:
             return make_response({}, 400, '无法开始游戏：游戏状态不正确或没有注册的组')
@@ -523,6 +564,7 @@ if __name__ == '__main__':
     print(f"本地访问: http://127.0.0.1:5000")
     print(f"局域网访问: http://{local_ip}:5000")
     print(f"WebSocket: 已启用实时推送")
+    print(f"词库: {len(WORD_PAIRS)} 对词语")
     print(f"=" * 50)
     print(f"请确保游戏方能够访问上述IP地址")
     print(f"=" * 50)
