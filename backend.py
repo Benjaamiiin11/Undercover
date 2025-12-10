@@ -157,6 +157,67 @@ def broadcast_game_state():
     socketio.emit('game_state_update', state)
 
 
+def broadcast_descriptions():
+    """广播描述列表更新"""
+    with game_lock:
+        round_num = game.current_round
+        descriptions = game.descriptions.get(round_num, [])
+        result = []
+        for desc in descriptions:
+            result.append({
+                'group': desc['group'],
+                'description': desc['description']
+            })
+        
+        socketio.emit('descriptions_update', {
+            'round': round_num,
+            'descriptions': result,
+            'total': len(result)
+        })
+
+
+def broadcast_groups():
+    """广播组列表更新"""
+    with game_lock:
+        groups_info = []
+        for name, info in game.groups.items():
+            groups_info.append({
+                'name': name,
+                'registered_time': info['registered_time'],
+                'eliminated': name in game.eliminated_groups
+            })
+        
+        socketio.emit('groups_update', {
+            'groups': groups_info,
+            'total': len(groups_info)
+        })
+
+
+def broadcast_scores():
+    """广播分数更新"""
+    with game_lock:
+        # 按分数排序（从高到低）
+        sorted_scores = sorted(
+            game.scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        # 构建返回数据
+        scores_list = [
+            {
+                'group_name': group_name,
+                'total_score': score
+            }
+            for group_name, score in sorted_scores
+        ]
+        
+        socketio.emit('scores_update', {
+            'scores': scores_list,
+            'total_groups': len(scores_list)
+        })
+
+
 def get_local_ip():
     """获取本机局域网IP地址"""
     try:
@@ -204,6 +265,8 @@ def register():
             # 广播状态变化
             socketio.start_background_task(broadcast_status)
             socketio.start_background_task(broadcast_game_state)
+            # 广播组列表更新
+            socketio.start_background_task(broadcast_groups)
             return make_response({
                 'group_name': group_name,
                 'total_groups': len(game.groups)
@@ -236,6 +299,8 @@ def start_game():
             # 广播状态变化
             socketio.start_background_task(broadcast_status)
             socketio.start_background_task(broadcast_game_state)
+            # 广播组列表更新（因为可能有离线玩家被标记为淘汰）
+            socketio.start_background_task(broadcast_groups)
             
             # 只返回在线玩家的角色信息
             online_status = game.get_online_status(websocket_status)
@@ -267,6 +332,8 @@ def start_round():
             # 广播状态变化
             socketio.start_background_task(broadcast_status)
             socketio.start_background_task(broadcast_game_state)
+            # 广播描述列表更新（新回合开始时描述列表被清空）
+            socketio.start_background_task(broadcast_descriptions)
             return make_response({
                 'round': game.current_round,
                 'order': order
@@ -291,6 +358,8 @@ def submit_description():
             # 广播状态变化
             socketio.start_background_task(broadcast_status)
             socketio.start_background_task(broadcast_game_state)
+            # 广播描述列表更新
+            socketio.start_background_task(broadcast_descriptions)
             # 获取当前描述列表
             current_descriptions = game.descriptions.get(game.current_round, [])
             return make_response({
@@ -338,6 +407,8 @@ def submit_vote():
                     socketio.start_background_task(broadcast_game_state)
                     # 广播投票结果
                     socketio.emit('vote_result', vote_result)
+                    # 广播分数更新（因为分数可能变化）
+                    socketio.start_background_task(broadcast_scores)
                     return make_response({
                         'auto_processed': True,
                         'vote_result': vote_result
@@ -378,6 +449,8 @@ def submit_ready():
                     # 广播状态变化
                     socketio.start_background_task(broadcast_status)
                     socketio.start_background_task(broadcast_game_state)
+                    # 广播描述列表更新（新回合开始时描述列表被清空）
+                    socketio.start_background_task(broadcast_descriptions)
                     return make_response({
                         'auto_started': True,
                         'round': game.current_round,
@@ -408,6 +481,8 @@ def process_voting():
         socketio.start_background_task(broadcast_game_state)
         # 广播投票结果
         socketio.emit('vote_result', result)
+        # 广播分数更新（因为分数可能变化）
+        socketio.start_background_task(broadcast_scores)
         return make_response(result, 200, '投票结果已生成')
 
 
@@ -505,6 +580,9 @@ def reset_game():
         # 广播状态变化
         socketio.start_background_task(broadcast_status)
         socketio.start_background_task(broadcast_game_state)
+        # 广播组列表和分数更新（重置后数据变化）
+        socketio.start_background_task(broadcast_groups)
+        socketio.start_background_task(broadcast_scores)
         return make_response({}, 200, '游戏已重置')
 
 
@@ -619,9 +697,13 @@ def handle_disconnect():
                         if result.get('game_ended'):
                             stop_timer_broadcast()
                             socketio.emit('vote_result', result)
+                            # 广播分数更新（因为游戏结束可能计算了分数）
+                            socketio.start_background_task(broadcast_scores)
                         # 广播状态更新
                         socketio.start_background_task(broadcast_status)
                         socketio.start_background_task(broadcast_game_state)
+                        # 广播组列表更新（因为可能有组被标记为淘汰）
+                        socketio.start_background_task(broadcast_groups)
         
         # 清理空的socket集合
         for group_name in disconnected_groups:
