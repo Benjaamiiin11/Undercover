@@ -445,17 +445,58 @@ class GameLogic:
                     self.ready_groups = []
 
         elif len(max_voted_groups) == 2:
-            # 情况c：票数最多的组有2组，进入下一轮
-            groups_str = ' 和 '.join(max_voted_groups)
-            result["message"] = f"⚖️ 投票结果：{groups_str} 票数相同（各{max_votes}票），无人淘汰。\n"
-            result["message"] += "进入下一轮。"
+            # 情况c：票数最多的组有2组，检查是否都是平民
+            all_civilians = all(g != self.undercover_group for g in max_voted_groups)
 
-            # 计算本轮得分（平局情况）
-            self._calculate_round_scores(result)
+            if all_civilians:
+                # 都是平民，全部淘汰
+                self.eliminated_groups.extend(max_voted_groups)
+                # 更新组的淘汰状态
+                for g in max_voted_groups:
+                    if g in self.groups:
+                        self.groups[g]["eliminated"] = True
+                result["eliminated"] = max_voted_groups.copy()
 
-            self.game_status = GameStatus.ROUND_END
-            # 清空准备状态，等待玩家准备下一轮
-            self.ready_groups = []
+                # 计算本轮得分
+                self._calculate_round_scores(result)
+
+                # 检查游戏是否结束
+                remaining_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
+                remaining_civilians = [g for g in remaining_groups if g != self.undercover_group]
+
+                if len(remaining_civilians) <= 1:
+                    # 平民只剩1组或0组，卧底胜利
+                    result["game_ended"] = True
+                    result["winner"] = "undercover"
+                    result["message"] = f"😈 投票结果：{' 和 '.join(max_voted_groups)} 票数相同且都是平民，全部淘汰！\n"
+                    result["message"] += f"平民只剩{len(remaining_civilians)}组\n"
+                    result["message"] += f"🎭 卧底 {self.undercover_group} 胜利！"
+                    result["undercover_word"] = self.undercover_word
+                    result["civilian_word"] = self.civilian_word
+                    self.game_status = GameStatus.GAME_END
+                else:
+                    # 平民还有多于1组，游戏继续
+                    result["game_ended"] = False
+                    result["winner"] = None
+                    result["message"] = f"👋 投票结果：{' 和 '.join(max_voted_groups)} 票数相同，全部淘汰！\n"
+                    result["message"] += f"得票情况：各组都获得 {max_votes} 票\n"
+                    result["message"] += "游戏继续。"
+                    # 不立即增加回合数，等待玩家准备下一轮
+                    self.game_status = GameStatus.ROUND_END  # 保持当前回合状态
+                    # 清空准备状态，等待玩家准备下一轮
+                    self.ready_groups = []
+            else:
+                # 包含卧底，进入下一轮（无人淘汰）
+                groups_str = ' 和 '.join(max_voted_groups)
+                result["message"] = f"⚖️ 投票结果：{groups_str} 票数相同（各{max_votes}票），无人淘汰。\n"
+                result["message"] += "进入下一轮。"
+
+                # 计算本轮得分（平局情况）
+                self._calculate_round_scores(result)
+
+                self.game_status = GameStatus.ROUND_END
+                # 清空准备状态，等待玩家准备下一轮
+                self.ready_groups = []
 
         elif len(max_voted_groups) >= 3:
             # 情况b：得票最多有3组或更多
