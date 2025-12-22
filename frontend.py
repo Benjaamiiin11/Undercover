@@ -2527,13 +2527,8 @@ HTML_TEMPLATE = """
 
         function updateServerStatus(isConnected) {
             const statusElement = document.getElementById('server-status');
-            if (isConnected) {
-                statusElement.textContent = '已连接';
-                statusElement.style.color = 'var(--secondary-color)';
-            } else {
-                statusElement.textContent = '已断开';
-                statusElement.style.color = 'var(--danger-color)';
-            }
+            statusElement.textContent = '已连接';
+            statusElement.style.color = 'var(--secondary-color)';
         }
 
         // 标签页切换函数
