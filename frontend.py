@@ -2170,6 +2170,13 @@ HTML_TEMPLATE = """
 
         function updateGameStateDisplay(data) {
             const displayElement = document.getElementById('game-state-display');
+            
+            // 检查displayElement是否存在
+            if (!displayElement) {
+                console.warn('game-state-display 元素未找到');
+                return;
+            }
+            
             const status = data.status || 'waiting';
             const currentSpeaker = data.current_speaker || '';
             const describedGroups = data.described_groups || [];
@@ -2192,7 +2199,6 @@ HTML_TEMPLATE = """
                 case 'registered':
                 case 'word_assigned':
                     const readyGroups = data.ready_groups || [];
-                    const activeGroups = data.active_groups || [];
                     if (readyGroups.length > 0 && activeGroups.length > 0) {
                         displayText = `🎮 等待准备 (${readyGroups.length}/${activeGroups.length})`;
                     } else {
@@ -2289,6 +2295,7 @@ HTML_TEMPLATE = """
 
                     displayText = `🗳️ 投票中 (${votedCount}/${totalCount})`;
                     displayClass = 'state-voting';
+                    console.log('投票阶段 displayText:', displayText);
 
                     if (votedCount >= totalCount && totalCount > 0) {
                         bgColor = 'rgba(46, 204, 113, 0.2)';
@@ -2301,9 +2308,8 @@ HTML_TEMPLATE = """
 
                 case 'round_end':
                     const readyGroupsRound = data.ready_groups || [];
-                    const activeGroupsRound = data.active_groups || [];
-                    if (readyGroupsRound.length > 0 && activeGroupsRound.length > 0) {
-                        displayText = `🏁 回合结束，等待准备 (${readyGroupsRound.length}/${activeGroupsRound.length})`;
+                    if (readyGroupsRound.length > 0 && activeGroups.length > 0) {
+                        displayText = `🏁 回合结束，等待准备 (${readyGroupsRound.length}/${activeGroups.length})`;
                     } else {
                         if (latestResult) {
                             if (latestResult.eliminated && latestResult.eliminated.length > 0) {
@@ -2346,6 +2352,7 @@ HTML_TEMPLATE = """
             }
 
             // 更新显示内容
+            console.log('displayText:', displayText, 'displayClass:', displayClass);
             displayElement.innerHTML = displayText;
             displayElement.className = 'game-state-display ' + displayClass;
             displayElement.style.background = bgColor;
