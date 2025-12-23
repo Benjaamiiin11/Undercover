@@ -6,6 +6,9 @@ import requests
 import time
 import os
 import sys
+import socketio
+import threading
+from urllib.parse import urlparse
 
 # 配置服务器地址
 BASE_URL = "http://127.0.0.1:5000"
@@ -22,7 +25,100 @@ class InteractiveClient:
         self.total_score = 0  # 记录总得分
         self.reconnect_count = 0
         self.max_reconnect = 100  # 增大重连次数
+        
+        # WebSocket 相关
+        self.sio = None
+        self.socket_thread = None
+        self.websocket_connected = False
+        self.websocket_registered = False
+        self._setup_websocket()
 
+    def _setup_websocket(self):
+        """设置 WebSocket 连接"""
+        # 解析 BASE_URL 获取 WebSocket 地址
+        parsed = urlparse(BASE_URL)
+        ws_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # 创建 SocketIO 客户端
+        self.sio = socketio.Client()
+        
+        # 注册事件处理器
+        @self.sio.on('connect')
+        def on_connect():
+            """连接成功时注册 socket"""
+            print(f"✓ WebSocket 已连接")
+            self.websocket_connected = True
+            # 发送注册事件
+            try:
+                self.sio.emit('register_socket', {'group_name': self.group_name})
+                self.websocket_registered = True
+                print(f"✓ WebSocket 已注册: {self.group_name}")
+            except Exception as e:
+                print(f"✗ WebSocket 注册失败: {e}")
+                self.websocket_registered = False
+        
+        @self.sio.on('disconnect')
+        def on_disconnect():
+            """断开连接时的处理"""
+            print(f"✗ WebSocket 已断开")
+            self.websocket_connected = False
+            self.websocket_registered = False
+        
+        @self.sio.on('socket_registered')
+        def on_socket_registered(data):
+            """收到注册成功确认"""
+            if data.get('status') == 'success':
+                self.websocket_registered = True
+                print(f"✓ WebSocket 注册确认: {data.get('group_name')}")
+        
+        @self.sio.on('status_update')
+        def on_status_update(data):
+            """接收状态更新推送（可选，当前仍主要使用 HTTP 轮询）"""
+            pass
+        
+        @self.sio.on('game_state_update')
+        def on_game_state_update(data):
+            """接收游戏状态更新推送（可选）"""
+            pass
+        
+        @self.sio.on('vote_result')
+        def on_vote_result(data):
+            """接收投票结果推送"""
+            pass
+        
+        @self.sio.on('connect_error')
+        def on_connect_error(data):
+            """连接错误"""
+            print(f"✗ WebSocket 连接错误: {data}")
+            self.websocket_connected = False
+            self.websocket_registered = False
+    
+    def connect_websocket(self):
+        """连接到 WebSocket 服务器"""
+        if self.websocket_connected:
+            return True
+        
+        try:
+            parsed = urlparse(BASE_URL)
+            ws_url = f"{parsed.scheme}://{parsed.netloc}"
+            self.sio.connect(ws_url, wait_timeout=5)
+            # 等待连接建立
+            time.sleep(0.5)
+            return self.websocket_connected
+        except Exception as e:
+            print(f"✗ WebSocket 连接失败: {e}")
+            return False
+    
+    def disconnect_websocket(self):
+        """断开 WebSocket 连接"""
+        if self.sio and self.websocket_connected:
+            try:
+                self.sio.disconnect()
+            except:
+                pass
+            self.websocket_connected = False
+            self.websocket_registered = False
+    
     def clear_screen(self):
         """清屏"""
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -465,6 +561,10 @@ class InteractiveClient:
         print(f"保持已注册状态: {self.group_name}")
         print(f"累计得分: {self.total_score}")
         print("等待主持方重新开始游戏...")
+        
+        # 确保 WebSocket 连接正常
+        if not self.websocket_connected:
+            self.connect_websocket()
 
         # 重置淘汰状态（新游戏开始）
         self.is_eliminated = False
@@ -477,6 +577,10 @@ class InteractiveClient:
         self.print_header(f"谁是卧底 - 游戏方客户端")
         print(f"服务器: {BASE_URL}")
         print(f"组名: {self.group_name}")
+
+        # 连接 WebSocket
+        print(f"\n正在连接 WebSocket...")
+        self.connect_websocket()
 
         # 注册
         if not self.register():
@@ -741,6 +845,11 @@ def main():
             print(f"\n{'=' * 60}")
             print(f"第 {reconnect_count + 1} 次连接")
             print("=" * 60)
+            
+            # 每次重连前重新连接 WebSocket
+            if reconnect_count > 0:
+                print("重新连接 WebSocket...")
+                client.connect_websocket()
 
             should_reconnect = client.run()
 
@@ -753,6 +862,10 @@ def main():
                 print(f"\n已达到最大重连次数 ({max_reconnect})")
                 break
 
+            # 断开 WebSocket 连接（如果已连接）
+            if client.sio and client.websocket_connected:
+                client.disconnect_websocket()
+            
             print(f"\n3秒后重新连接... (按Ctrl+C退出)")
             for i in range(3, 0, -1):
                 print(f"{i}...", end=' ', flush=True)
@@ -773,14 +886,23 @@ def main():
             time.sleep(5)
 
     print("\n游戏结束，感谢参与！")
+    
+    # 断开 WebSocket 连接
+    if client.sio and client.websocket_connected:
+        client.disconnect_websocket()
+        print("✓ WebSocket 连接已关闭")
+    
     input("按Enter退出...")
 
 
 if __name__ == '__main__':
+    client_instance = None
     try:
         main()
     except KeyboardInterrupt:
         print("\n\n已退出")
+        # 注意：client_instance 在这里可能未定义，因为它在 main() 内部创建
+        # 如果需要，可以在 main() 中处理退出逻辑
     except Exception as e:
         print(f"\n程序异常退出: {e}")
         input("按Enter退出...")

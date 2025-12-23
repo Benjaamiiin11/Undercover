@@ -86,15 +86,22 @@ class GameLogic:
 
         return True
 
-    def start_game(self, undercover_word: str, civilian_word: str) -> bool:
+    def start_game(self, undercover_word: str, civilian_word: str, websocket_status: Optional[Dict[str, bool]] = None) -> bool:
         """
-        开始游戏，分配身份和词语
+        开始游戏，分配身份和词语（只给在线玩家分配）
         :param undercover_word: 卧底词
         :param civilian_word: 平民词
+        :param websocket_status: WebSocket连接状态字典，用于判断哪些玩家在线
         :return: 是否成功开始
         """
-        # 允许至少1组开始
-        if len(self.groups) < 1:
+        # 获取在线状态
+        online_status = self.get_online_status(websocket_status)
+        
+        # 获取在线玩家列表
+        online_groups = [name for name in self.groups.keys() if online_status.get(name, False)]
+        
+        # 允许至少1个在线玩家开始
+        if len(online_groups) < 1:
             return False
         # 允许在 REGISTERED 或 GAME_END 状态下开始新游戏（用于多轮游戏）
         if self.game_status not in [GameStatus.REGISTERED, GameStatus.GAME_END]:
@@ -106,13 +113,23 @@ class GameLogic:
         # 更新所有组的淘汰状态
         for group_name in self.groups:
             self.groups[group_name]["eliminated"] = False
+        
+        # 离线玩家标记为淘汰（不参与游戏）
+        for group_name in self.groups:
+            if group_name not in online_groups:
+                self.eliminated_groups.append(group_name)
+                self.groups[group_name]["eliminated"] = True
+                # 清空离线玩家的角色和词语
+                self.groups[group_name]["role"] = None
+                self.groups[group_name]["word"] = ""
 
         self.undercover_word = undercover_word
         self.civilian_word = civilian_word
 
-        group_names = list(self.groups.keys())
+        # 只给在线玩家分配角色
+        group_names = online_groups
 
-        # 选择卧底时考虑历史次数，尽量平衡
+        # 选择卧底时考虑历史次数，尽量平衡（只从在线玩家中选择）
         if group_names:
             # 确保所有组都有统计记录
             for name in group_names:
@@ -132,7 +149,7 @@ class GameLogic:
             self.game_counter += 1
             self.total_games_played += 1
 
-        # 分配身份和词语
+        # 分配身份和词语（只给在线玩家）
         for group_name in group_names:
             if group_name == self.undercover_group:
                 self.groups[group_name]["role"] = "undercover"
@@ -144,7 +161,7 @@ class GameLogic:
         self.current_round = 1
 
         # 确保所有组都有分数记录
-        for group_name in group_names:
+        for group_name in self.groups:
             if group_name not in self.scores:
                 self.scores[group_name] = 0
 
@@ -245,8 +262,6 @@ class GameLogic:
         # 检查是否所有人都提交了
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
         if len(self.descriptions[self.current_round]) >= len(active_groups):
-            # 进入投票阶段前，检测是否有组未提交
-            self.detect_missing_submissions()
             # 设置投票阶段截止时间
             self.phase_deadline = datetime.now() + timedelta(seconds=VOTE_TIMEOUT)
             self.speaker_deadline = None
@@ -342,9 +357,6 @@ class GameLogic:
         if self.game_status != GameStatus.VOTING:
             return {"error": "当前不在投票阶段"}
 
-        # 检测未提交的组并自动记录异常
-        missing_reports = self.detect_missing_submissions()
-
         round_votes = self.votes[self.current_round]
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
 
@@ -433,17 +445,58 @@ class GameLogic:
                     self.ready_groups = []
 
         elif len(max_voted_groups) == 2:
-            # 情况c：票数最多的组有2组，进入下一轮
-            groups_str = ' 和 '.join(max_voted_groups)
-            result["message"] = f"⚖️ 投票结果：{groups_str} 票数相同（各{max_votes}票），无人淘汰。\n"
-            result["message"] += "进入下一轮。"
+            # 情况c：票数最多的组有2组，检查是否都是平民
+            all_civilians = all(g != self.undercover_group for g in max_voted_groups)
 
-            # 计算本轮得分（平局情况）
-            self._calculate_round_scores(result)
+            if all_civilians:
+                # 都是平民，全部淘汰
+                self.eliminated_groups.extend(max_voted_groups)
+                # 更新组的淘汰状态
+                for g in max_voted_groups:
+                    if g in self.groups:
+                        self.groups[g]["eliminated"] = True
+                result["eliminated"] = max_voted_groups.copy()
 
-            self.game_status = GameStatus.ROUND_END
-            # 清空准备状态，等待玩家准备下一轮
-            self.ready_groups = []
+                # 计算本轮得分
+                self._calculate_round_scores(result)
+
+                # 检查游戏是否结束
+                remaining_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
+                remaining_civilians = [g for g in remaining_groups if g != self.undercover_group]
+
+                if len(remaining_civilians) <= 1:
+                    # 平民只剩1组或0组，卧底胜利
+                    result["game_ended"] = True
+                    result["winner"] = "undercover"
+                    result["message"] = f"😈 投票结果：{' 和 '.join(max_voted_groups)} 票数相同且都是平民，全部淘汰！\n"
+                    result["message"] += f"平民只剩{len(remaining_civilians)}组\n"
+                    result["message"] += f"🎭 卧底 {self.undercover_group} 胜利！"
+                    result["undercover_word"] = self.undercover_word
+                    result["civilian_word"] = self.civilian_word
+                    self.game_status = GameStatus.GAME_END
+                else:
+                    # 平民还有多于1组，游戏继续
+                    result["game_ended"] = False
+                    result["winner"] = None
+                    result["message"] = f"👋 投票结果：{' 和 '.join(max_voted_groups)} 票数相同，全部淘汰！\n"
+                    result["message"] += f"得票情况：各组都获得 {max_votes} 票\n"
+                    result["message"] += "游戏继续。"
+                    # 不立即增加回合数，等待玩家准备下一轮
+                    self.game_status = GameStatus.ROUND_END  # 保持当前回合状态
+                    # 清空准备状态，等待玩家准备下一轮
+                    self.ready_groups = []
+            else:
+                # 包含卧底，进入下一轮（无人淘汰）
+                groups_str = ' 和 '.join(max_voted_groups)
+                result["message"] = f"⚖️ 投票结果：{groups_str} 票数相同（各{max_votes}票），无人淘汰。\n"
+                result["message"] += "进入下一轮。"
+
+                # 计算本轮得分（平局情况）
+                self._calculate_round_scores(result)
+
+                self.game_status = GameStatus.ROUND_END
+                # 清空准备状态，等待玩家准备下一轮
+                self.ready_groups = []
 
         elif len(max_voted_groups) >= 3:
             # 情况b：得票最多有3组或更多
@@ -576,71 +629,164 @@ class GameLogic:
         if group_name in self.groups:
             self.last_activity[group_name] = datetime.now()
 
-    def get_online_status(self) -> Dict[str, bool]:
-        """检测各组是否在线（基于最后活跃时间）"""
+    def get_online_status(self, websocket_status: Optional[Dict[str, bool]] = None) -> Dict[str, bool]:
+        """检测各组是否在线（优先使用WebSocket连接状态，降级使用活跃时间）"""
         online_status = {}
         threshold = timedelta(seconds=60)  # 60秒未活跃视为离线
 
         for group_name in self.groups.keys():
-            last_active = self.last_activity.get(group_name)
-            if last_active:
-                online_status[group_name] = (datetime.now() - last_active) < threshold
+            # 优先使用WebSocket连接状态
+            if websocket_status is not None and group_name in websocket_status:
+                online_status[group_name] = websocket_status[group_name]
             else:
-                online_status[group_name] = False
+                # 降级：使用HTTP活跃时间
+                last_active = self.last_activity.get(group_name)
+                if last_active:
+                    online_status[group_name] = (datetime.now() - last_active) < threshold
+                else:
+                    online_status[group_name] = False
 
         return online_status
 
     def _has_existing_report(self, group_name: str, report_type: str, round_num: int) -> bool:
         """检查是否已经为指定组在当前轮次记录过相同类型的异常"""
         for report in self.reports:
-            if (report.get('group') == group_name and
-                    report.get('type') == report_type and
-                    f'第{round_num}轮' in report.get('detail', '')):
-                return True
+            if report.get('group') == group_name and report.get('type') == report_type:
+                # 对于断开连接类型，检查是否在最近一段时间内已经记录过（避免重复记录）
+                if report_type == 'disconnect':
+                    try:
+                        report_time = datetime.fromisoformat(report.get('time', ''))
+                        # 5分钟内不重复记录断开连接
+                        if (datetime.now() - report_time).total_seconds() < 300:
+                            return True
+                    except:
+                        pass
+                # 对于其他类型，检查轮次
+                elif f'第{round_num}轮' in report.get('detail', ''):
+                    return True
         return False
 
-    def detect_missing_submissions(self) -> List[Dict]:
-        """检测未提交的组，自动记录异常（避免重复记录）"""
-        missing_reports = []
-
+    def handle_disconnect(self, group_name: str) -> Optional[Dict]:
+        """
+        处理断开连接（视为退出游戏）
+        如果断开的是卧底，则平民胜利
+        如果断开的是平民，则根据游戏规则判定游戏是否继续
+        返回游戏结果（如果有）或None
+        """
+        # 只在游戏进行中时处理断开连接
+        if self.game_status in [GameStatus.WAITING, GameStatus.REGISTERED]:
+            return None
+        
+        # 如果已经淘汰了，不需要处理
+        if group_name in self.eliminated_groups:
+            return None
+        
+        # 标记为淘汰（退出游戏）
+        self.eliminated_groups.append(group_name)
+        if group_name in self.groups:
+            self.groups[group_name]["eliminated"] = True
+        
+        # 记录异常
+        if not self._has_existing_report(group_name, 'disconnect', self.current_round):
+            self.add_report(
+                group_name,
+                'disconnect',
+                f'检测到断开连接，视为退出游戏（第{self.current_round}轮）'
+            )
+        
+        # 如果断开的是卧底，平民胜利，游戏结束
+        if group_name == self.undercover_group:
+            # 计算得分
+            self._calculate_scores()
+            
+            result = {
+                "round": self.current_round,
+                "vote_count": {},
+                "vote_details": {},
+                "max_voted_groups": [],
+                "max_votes": 0,
+                "eliminated": [group_name],
+                "game_ended": True,
+                "winner": "civilian",
+                "message": f"📡 {group_name}（卧底）断开连接，视为退出游戏。\n🎊 平民胜利！",
+                "undercover_group": self.undercover_group,
+                "undercover_word": self.undercover_word,
+                "civilian_word": self.civilian_word,
+                "round_scores": {},
+                "total_scores": self.scores.copy(),
+                "active_groups": [g for g in self.groups.keys() if g not in self.eliminated_groups],
+                "voted_groups": []
+            }
+            
+            # 计算本轮得分
+            self._calculate_round_scores(result)
+            
+            self.game_status = GameStatus.GAME_END
+            self.last_vote_result = result
+            
+            return result
+        
+        # 如果断开的是平民，检查是否满足游戏结束条件
+        remaining_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
+        remaining_civilians = [g for g in remaining_groups if g != self.undercover_group]
+        
+        if len(remaining_civilians) <= 1:
+            # 平民只剩1组或0组，卧底胜利，游戏结束
+            self._calculate_scores()
+            
+            result = {
+                "round": self.current_round,
+                "vote_count": {},
+                "vote_details": {},
+                "max_voted_groups": [],
+                "max_votes": 0,
+                "eliminated": [group_name],
+                "game_ended": True,
+                "winner": "undercover",
+                "message": f"📡 {group_name}（平民）断开连接，视为退出游戏。\n"
+                          f"平民只剩{len(remaining_civilians)}组\n"
+                          f"🎭 卧底 {self.undercover_group} 胜利！",
+                "undercover_group": self.undercover_group,
+                "undercover_word": self.undercover_word,
+                "civilian_word": self.civilian_word,
+                "round_scores": {},
+                "total_scores": self.scores.copy(),
+                "active_groups": remaining_groups,
+                "voted_groups": []
+            }
+            
+            # 计算本轮得分
+            self._calculate_round_scores(result)
+            
+            self.game_status = GameStatus.GAME_END
+            self.last_vote_result = result
+            
+            return result
+        
+        # 平民断开连接，但游戏继续
+        # 不生成投票结果，只是更新状态
+        # 如果正在描述或投票阶段，需要从发言顺序中移除
         if self.game_status == GameStatus.DESCRIBING:
-            # 只检查当前应该发言的组，而不是所有未提交的组
-            current_speaker = self.get_current_speaker()
-            if current_speaker:
-                # 检查当前发言者是否已提交
-                submitted_groups = [d["group"] for d in self.descriptions.get(self.current_round, [])]
-                if current_speaker not in submitted_groups:
-                    # 检查是否超时
-                    if self.speaker_deadline and datetime.now() > self.speaker_deadline:
-                        # 检查是否已经记录过这个异常，避免重复记录
-                        if not self._has_existing_report(current_speaker, 'timeout', self.current_round):
-                            # 自动记录异常
-                            report = self.add_report(
-                                current_speaker,
-                                'timeout',
-                                f'描述阶段超时未提交（第{self.current_round}轮，当前发言者：{current_speaker}）'
-                            )
-                            missing_reports.append(report)
-
+            if group_name in self.describe_order:
+                self.describe_order.remove(group_name)
+                # 如果断开的组是当前发言者，需要调整
+                if self.get_current_speaker() == group_name:
+                    # 会自动跳过，因为已从顺序中移除
+                    pass
         elif self.game_status == GameStatus.VOTING:
-            # 检查是否有组未投票
-            active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
-            voted_groups = list(self.votes.get(self.current_round, {}).keys())
+            # 从投票中移除（如果已投票）
+            if self.current_round in self.votes and group_name in self.votes[self.current_round]:
+                del self.votes[self.current_round][group_name]
+        
+        return None
 
-            for group in active_groups:
-                if group not in voted_groups:
-                    # 检查是否超时
-                    if self.phase_deadline and datetime.now() > self.phase_deadline:
-                        # 检查是否已经记录过这个异常，避免重复记录
-                        if not self._has_existing_report(group, 'timeout', self.current_round):
-                            report = self.add_report(
-                                group,
-                                'timeout',
-                                f'投票阶段超时未提交（第{self.current_round}轮）'
-                            )
-                            missing_reports.append(report)
-
-        return missing_reports
+    def detect_missing_submissions(self, websocket_status: Optional[Dict[str, bool]] = None) -> List[Dict]:
+        """
+        检测未提交的组（已移除超时异常上报功能）
+        保留方法以保持API兼容性，但不再自动上报异常
+        """
+        # 不再自动上报超时异常，只返回空列表
+        return []
 
     def _calculate_scores(self):
         """

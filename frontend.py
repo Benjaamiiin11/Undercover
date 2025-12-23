@@ -1347,6 +1347,7 @@ HTML_TEMPLATE = """
         const socket = io('http://127.0.0.1:5000');
         let gameData = {};
         let allVoteResults = {}; // 存储所有回合的投票结果，键为 "gameNumber_round" 或 "round"
+        let allDescriptions = {}; // 存储所有回合的描述记录，键为 "gameNumber_round" 或 "round"
         let gameRoundMapping = {}; // 映射：round -> gameNumber（用于单轮游戏或兼容性）
         let descriptionRoundMapping = {}; // 映射：round -> gameNumber（用于描述记录）
         let voteRoundMapping = {}; // 映射：round -> gameNumber（用于投票记录）
@@ -1354,23 +1355,27 @@ HTML_TEMPLATE = """
         // localStorage 键名
         const STORAGE_KEYS = {
             VOTE_RESULTS: 'undercover_vote_results',
+            DESCRIPTIONS: 'undercover_descriptions',
             ROUND_MAPPINGS: 'undercover_round_mappings',
             MULTI_ROUND_CONFIG: 'undercover_multi_round_config',
-            CURRENT_ROUND_INDEX: 'undercover_current_round_index'
+            CURRENT_ROUND_INDEX: 'undercover_current_round_index',
+            TOTAL_ROUNDS: 'undercover_total_rounds'
         };
 
         // 保存数据到 localStorage
         function saveToLocalStorage() {
             try {
                 localStorage.setItem(STORAGE_KEYS.VOTE_RESULTS, JSON.stringify(allVoteResults));
+                localStorage.setItem(STORAGE_KEYS.DESCRIPTIONS, JSON.stringify(allDescriptions));
                 localStorage.setItem(STORAGE_KEYS.ROUND_MAPPINGS, JSON.stringify({
                     gameRoundMapping: gameRoundMapping,
                     descriptionRoundMapping: descriptionRoundMapping,
                     voteRoundMapping: voteRoundMapping
                 }));
-                if (multiRoundConfig) {
+                if (totalRounds > 0) {
                     localStorage.setItem(STORAGE_KEYS.MULTI_ROUND_CONFIG, JSON.stringify(multiRoundConfig));
                     localStorage.setItem(STORAGE_KEYS.CURRENT_ROUND_INDEX, currentRoundIndex.toString());
+                    localStorage.setItem(STORAGE_KEYS.TOTAL_ROUNDS, totalRounds.toString());
                 }
             } catch (e) {
                 console.error('保存到 localStorage 失败:', e);
@@ -1384,6 +1389,12 @@ HTML_TEMPLATE = """
                 const savedVoteResults = localStorage.getItem(STORAGE_KEYS.VOTE_RESULTS);
                 if (savedVoteResults) {
                     allVoteResults = JSON.parse(savedVoteResults);
+                }
+
+                // 恢复描述记录
+                const savedDescriptions = localStorage.getItem(STORAGE_KEYS.DESCRIPTIONS);
+                if (savedDescriptions) {
+                    allDescriptions = JSON.parse(savedDescriptions);
                 }
 
                 // 恢复轮次映射
@@ -1400,8 +1411,15 @@ HTML_TEMPLATE = """
                 if (savedConfig) {
                     multiRoundConfig = JSON.parse(savedConfig);
                     const savedIndex = localStorage.getItem(STORAGE_KEYS.CURRENT_ROUND_INDEX);
+                    const savedTotalRounds = localStorage.getItem(STORAGE_KEYS.TOTAL_ROUNDS);
                     if (savedIndex !== null) {
                         currentRoundIndex = parseInt(savedIndex) || 0;
+                    }
+                    if (savedTotalRounds !== null) {
+                        totalRounds = parseInt(savedTotalRounds) || 0;
+                    } else if (multiRoundConfig) {
+                        // 兼容旧数据：如果没有保存总轮数，从配置长度推断
+                        totalRounds = multiRoundConfig.length;
                     }
                 }
             } catch (e) {
@@ -1413,9 +1431,11 @@ HTML_TEMPLATE = """
         function clearLocalStorage() {
             try {
                 localStorage.removeItem(STORAGE_KEYS.VOTE_RESULTS);
+                localStorage.removeItem(STORAGE_KEYS.DESCRIPTIONS);
                 localStorage.removeItem(STORAGE_KEYS.ROUND_MAPPINGS);
                 localStorage.removeItem(STORAGE_KEYS.MULTI_ROUND_CONFIG);
                 localStorage.removeItem(STORAGE_KEYS.CURRENT_ROUND_INDEX);
+                localStorage.removeItem(STORAGE_KEYS.TOTAL_ROUNDS);
             } catch (e) {
                 console.error('清除 localStorage 失败:', e);
             }
@@ -1453,6 +1473,37 @@ HTML_TEMPLATE = """
             updateAllDisplay();
         });
 
+        // 接收描述列表更新推送（参考投票记录的机制）
+        socket.on('descriptions_update', function(data) {
+            console.log('收到描述列表更新推送:', data);
+            
+            // 只在事件中存储描述记录，确保使用正确的轮次号
+            if (data.round) {
+                // 确定当前是第几轮游戏（显示用的轮次号，从1开始）
+                const gameNumber = totalRounds > 0 ? (currentRoundIndex + 1) : null;
+                
+                // 使用组合键存储：gameNumber_round，例如 "1_1", "1_2", "2_1" 等
+                // 这样可以区分不同轮次中相同回合号的记录
+                const descKey = gameNumber ? `${gameNumber}_${data.round}` : data.round.toString();
+                
+                // 存储描述记录（完全替换，确保使用最新的数据）
+                if (data.descriptions && data.descriptions.length > 0) {
+                    allDescriptions[descKey] = data.descriptions;
+                    
+                    // 保存回合号到轮次的映射（用于兼容性和显示）
+                    if (gameNumber) {
+                        descriptionRoundMapping[data.round] = gameNumber;
+                    }
+                    
+                    // 保存到 localStorage
+                    saveToLocalStorage();
+                    
+                    // 更新显示
+                    updateDescriptions();
+                }
+            }
+        });
+
         // 接收投票结果推送
         socket.on('vote_result', function(data) {
             console.log('收到投票结果推送:', data);
@@ -1460,17 +1511,18 @@ HTML_TEMPLATE = """
 
             // 存储投票结果，添加轮次信息
             if (data.round) {
-                // 确定当前是第几轮游戏
-                const gameNumber = multiRoundConfig ? (currentRoundIndex + 1) : null;
+                // 确定当前是第几轮游戏（显示用的轮次号，从1开始）
+                const gameNumber = totalRounds > 0 ? (currentRoundIndex + 1) : null;
                 
                 // 添加轮次信息到结果数据
                 data.game_number = gameNumber;
                 
-                // 使用组合键存储（如果有轮次信息），否则使用回合号
+                // 使用组合键存储：gameNumber_round，例如 "1_1", "1_2", "2_1" 等
+                // 这样可以区分不同轮次中相同回合号的记录
                 const resultKey = gameNumber ? `${gameNumber}_${data.round}` : data.round.toString();
                 allVoteResults[resultKey] = data;
                 
-                // 也保存一个回合号到轮次的映射（用于兼容性）
+                // 保存回合号到轮次的映射（用于兼容性和显示）
                 if (gameNumber) {
                     gameRoundMapping[data.round] = gameNumber;
                     voteRoundMapping[data.round] = gameNumber;
@@ -1484,7 +1536,7 @@ HTML_TEMPLATE = """
             updateGameResults();
             
             // 如果游戏结束且有多轮配置，检查是否需要开始下一轮
-            if (data.game_ended && multiRoundConfig) {
+            if (data.game_ended && totalRounds > 0) {
                 checkAndStartNextRound();
             }
         });
@@ -1531,31 +1583,35 @@ HTML_TEMPLATE = """
         let lastGameNumber = null;
         
         function updateAllDisplay() {
-            // 记录当前轮次对应的回合号（用于描述和投票记录）
+            // 获取当前轮次显示号（从1开始）
             const currentRound = gameData.current_round || 0;
-            const gameNumber = multiRoundConfig ? (currentRoundIndex + 1) : null;
+            const gameNumber = totalRounds > 0 ? (currentRoundIndex + 1) : null;
             const currentStatus = gameData.status || '';
             
-            // 检测新游戏开始：轮次变化（gameNumber变化）或状态从 game_end 变为 word_assigned
-            const isNewGame = (multiRoundConfig && lastGameNumber !== null && lastGameNumber !== gameNumber) ||
-                              (lastGameStatus === 'game_end' && (currentStatus === 'word_assigned' || currentStatus === 'registered'));
+            // 检测新游戏开始：
+            // 1. 状态从 game_end 变为 word_assigned 或 registered
+            // 2. 并且回合号重置为1（这是新游戏开始的标志，因为每次新游戏开始时回合号都会重置为1）
+            const isNewGame = lastGameStatus === 'game_end' && 
+                              (currentStatus === 'word_assigned' || currentStatus === 'registered') &&
+                              currentRound === 1;
             
-            if (currentRound > 0 && gameNumber) {
-                // 如果是新游戏开始，或者映射不存在，或者映射的值不对，强制更新
-                const existingGameNumber = descriptionRoundMapping[currentRound];
-                // 如果轮次变化了，或者映射不存在，或者映射的值不对，则更新
-                if (isNewGame || !existingGameNumber || (existingGameNumber !== gameNumber && multiRoundConfig)) {
+            // 只有当有轮次配置且回合号大于0时，才建立回合号到轮次的映射
+            // 只在真正的新游戏开始时建立映射，避免在同一个轮次内重复更新映射
+            // 重要：只在状态从 game_end 变为 word_assigned 且回合号为1时，才建立映射
+            if (currentRound > 0 && gameNumber && isNewGame && currentRound === 1) {
+                // 只在新游戏开始时建立映射，避免覆盖已有映射
+                if (!descriptionRoundMapping[currentRound]) {
                     descriptionRoundMapping[currentRound] = gameNumber;
                 }
                 
-                const existingVoteGameNumber = voteRoundMapping[currentRound];
-                if (isNewGame || !existingVoteGameNumber || (existingVoteGameNumber !== gameNumber && multiRoundConfig)) {
+                if (!voteRoundMapping[currentRound]) {
                     voteRoundMapping[currentRound] = gameNumber;
                 }
-                
-                // 保存到 localStorage
-                saveToLocalStorage();
             }
+            
+            // 不再在 updateAllDisplay() 中处理描述记录
+            // 描述记录只在 descriptions_update WebSocket 事件中存储（参考投票记录的机制）
+            // 这样可以确保只在正确的时机使用正确的轮次号存储描述
             
             // 更新跟踪变量
             lastGameStatus = currentStatus;
@@ -1742,9 +1798,26 @@ HTML_TEMPLATE = """
 
         function updateDescriptions() {
             const container = document.getElementById('descriptions-content');
-            const descriptions = gameData.descriptions || {};
 
-            if (Object.keys(descriptions).length === 0) {
+            // 使用历史描述记录
+            // 判断是否是多轮游戏：检查是否有包含下划线的键（多轮格式）
+            const hasMultiRoundKeys = Object.keys(allDescriptions).some(key => key.includes('_'));
+            
+            const descriptionsToDisplay = {};
+            
+            Object.keys(allDescriptions).forEach(key => {
+                if (hasMultiRoundKeys) {
+                    // 如果有多轮格式的键，只显示多轮格式的记录（包含下划线的键，如 "1_1", "2_1"）
+                    if (key.includes('_')) {
+                        descriptionsToDisplay[key] = allDescriptions[key];
+                    }
+                } else {
+                    // 单轮游戏：显示所有格式的记录
+                    descriptionsToDisplay[key] = allDescriptions[key];
+                }
+            });
+
+            if (Object.keys(descriptionsToDisplay).length === 0) {
                 container.innerHTML = `
                     <div class="description-item">
                         <div class="desc-header">暂无描述记录</div>
@@ -1758,11 +1831,24 @@ HTML_TEMPLATE = """
 
             // 按顺序排列（最新的在前）
             // 首先按轮次排序，然后按回合排序
-            const descriptionEntries = Object.entries(descriptions).map(([round, roundDescriptions]) => {
-                const roundNum = parseInt(round);
-                const gameNumber = descriptionRoundMapping[roundNum] || null;
+            const descriptionEntries = Object.entries(descriptionsToDisplay).map(([key, roundDescriptions]) => {
+                // 解析键：如果是 "gameNumber_round" 格式，提取轮次和回合
+                const parts = key.toString().split('_');
+                let gameNumber = null;
+                let round = null;
+                
+                if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                    // 多轮格式：gameNumber_round
+                    gameNumber = parseInt(parts[0]);
+                    round = parseInt(parts[1]);
+                } else {
+                    // 单轮格式：只有 round
+                    round = parseInt(key);
+                    gameNumber = descriptionRoundMapping[round] || null;
+                }
+                
                 return {
-                    round: roundNum,
+                    round: round,
                     gameNumber: gameNumber || 999, // 单轮游戏放到最后
                     roundDescriptions: roundDescriptions
                 };
@@ -1777,15 +1863,22 @@ HTML_TEMPLATE = """
             });
 
             descriptionEntries.forEach(({round, gameNumber, roundDescriptions}) => {
-                if (roundDescriptions.length === 0) return;
+                if (!roundDescriptions || roundDescriptions.length === 0) return;
 
                 // 确定这个回合属于第几轮
                 const displayGameNumber = gameNumber !== 999 ? gameNumber : null;
                 let titleText = '';
-                // 判断是否显示轮次：如果有轮次信息且不是默认值，就显示
-                if (displayGameNumber !== null) {
-                    titleText = `第 ${displayGameNumber} 轮第 ${round} 回合 - ${roundDescriptions.length} 个描述`;
+                // 判断是否显示轮次：如果有多轮格式的键，就按多轮格式显示
+                if (hasMultiRoundKeys) {
+                    // 多轮游戏：必须显示轮次
+                    if (displayGameNumber !== null) {
+                        titleText = `第 ${displayGameNumber} 轮第 ${round} 回合 - ${roundDescriptions.length} 个描述`;
+                    } else {
+                        // 如果没有轮次信息，跳过这条记录（多轮游戏不应该出现这种情况）
+                        return;
+                    }
                 } else {
+                    // 单轮游戏：不显示轮次
                     titleText = `第 ${round} 回合 - ${roundDescriptions.length} 个描述`;
                 }
 
@@ -1796,17 +1889,28 @@ HTML_TEMPLATE = """
 
                 roundDescriptions.forEach(desc => {
                     const isUndercover = desc.group === undercoverGroup;
-                    const time = new Date(desc.time).toLocaleTimeString('zh-CN', { 
-                        hour: '2-digit', 
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
+                    // 安全地解析时间，如果时间无效则显示空字符串
+                    let timeStr = '';
+                    if (desc.time) {
+                        try {
+                            const timeDate = new Date(desc.time);
+                            if (!isNaN(timeDate.getTime())) {
+                                timeStr = timeDate.toLocaleTimeString('zh-CN', { 
+                                    hour: '2-digit', 
+                                    minute: '2-digit',
+                                    second: '2-digit'
+                                });
+                            }
+                        } catch (e) {
+                            console.warn('时间解析失败:', desc.time, e);
+                        }
+                    }
 
                     html += `
                         <div class="description-item ${isUndercover ? 'undercover' : ''}">
                             <div class="desc-header">
                                 <span>${desc.group} ${isUndercover ? '<i class="fas fa-user-secret"></i>' : ''}</span>
-                                <span style="color: #7f8c8d; font-size: 0.9em;">${time}</span>
+                                ${timeStr ? `<span style="color: #7f8c8d; font-size: 0.9em;">${timeStr}</span>` : ''}
                             </div>
                             <div class="desc-text">${desc.description}</div>
                         </div>
@@ -1822,42 +1926,9 @@ HTML_TEMPLATE = """
         function updateVoteRecords() {
             const container = document.getElementById('votes-content');
 
-            // 合并投票结果和当前投票数据
+            // 只使用 allVoteResults 中的数据，不再从 gameData.votes 添加
+            // 因为投票结果已经通过 vote_result 事件存储在 allVoteResults 中了
             const allVotes = { ...allVoteResults };
-
-            // 添加当前回合的投票记录
-            const currentRound = gameData.current_round;
-            if (gameData.votes && gameData.votes[currentRound]) {
-                const currentVotes = gameData.votes[currentRound];
-                if (Object.keys(currentVotes).length > 0) {
-                    // 确定当前是第几轮游戏
-                    const gameNumber = multiRoundConfig ? (currentRoundIndex + 1) : null;
-                    
-                    // 记录轮次映射
-                    if (gameNumber && !voteRoundMapping[currentRound]) {
-                        voteRoundMapping[currentRound] = gameNumber;
-                        // 保存到 localStorage
-                        saveToLocalStorage();
-                    }
-                    
-                    // 使用组合键存储（如果有轮次信息），避免覆盖已有的投票结果
-                    const voteKey = gameNumber ? `${gameNumber}_${currentRound}` : currentRound.toString();
-                    if (!allVotes[voteKey]) {
-                        allVotes[voteKey] = {
-                            round: currentRound,
-                            vote_details: currentVotes,
-                            vote_count: {}
-                        };
-
-                        // 计算当前回合的票数
-                        const voteCount = {};
-                        Object.values(currentVotes).forEach(target => {
-                            voteCount[target] = (voteCount[target] || 0) + 1;
-                        });
-                        allVotes[voteKey].vote_count = voteCount;
-                    }
-                }
-            }
 
             if (Object.keys(allVotes).length === 0) {
                 container.innerHTML = `
@@ -1999,9 +2070,6 @@ HTML_TEMPLATE = """
                 return b.round - a.round;
             });
             
-            // 检查最新的游戏结果，看是否需要开始下一轮
-            let latestResultChecked = false;
-
             results.forEach(({key, gameNumber, round, result}) => {
                 const roundScores = result.round_scores || {};
                 const totalScores = result.total_scores || {};
@@ -2113,11 +2181,7 @@ HTML_TEMPLATE = """
                         </div>
                     `;
                     
-                    // 如果这是最新的结果且游戏结束，检查是否需要开始下一轮
-                    if (!latestResultChecked && results[0] && results[0].key === key && multiRoundConfig) {
-                        latestResultChecked = true;
-                        checkAndStartNextRound();
-                    }
+                    // 注意：checkAndStartNextRound() 已经在 vote_result 事件处理中调用，这里不需要重复调用
                 }
 
                 html += `</div></div>`;
@@ -2470,13 +2534,8 @@ HTML_TEMPLATE = """
 
         function updateServerStatus(isConnected) {
             const statusElement = document.getElementById('server-status');
-            if (isConnected) {
-                statusElement.textContent = '已连接';
-                statusElement.style.color = 'var(--secondary-color)';
-            } else {
-                statusElement.textContent = '已断开';
-                statusElement.style.color = 'var(--danger-color)';
-            }
+            statusElement.textContent = '已连接';
+            statusElement.style.color = 'var(--secondary-color)';
         }
 
         // 标签页切换函数
@@ -2599,37 +2658,42 @@ HTML_TEMPLATE = """
                 });
             }
             
+            // 设置总轮数和当前轮次索引
+            totalRounds = roundCount;
+            currentRoundIndex = 0;
+            multiRoundConfig = rounds; // 保存配置用于获取词语
+            
             // 关闭模态框
             closeMultiRoundModal();
             
             // 显示提示
-            showAlert('info', `已配置 ${roundCount} 轮游戏，准备开始第一轮...`);
+            showAlert('info', `已配置 ${roundCount} 轮游戏，准备开始第 1 轮...`);
             
             // 开始第一轮游戏
             const firstRound = rounds[0];
-            startGameWithWords(firstRound.undercover_word, firstRound.civilian_word, rounds, true);
+            startGameWithWords(firstRound.undercover_word, firstRound.civilian_word, true);
         }
 
-        // 存储多轮配置
-        let multiRoundConfig = null;
-        let currentRoundIndex = 0; // 当前进行到第几轮（从0开始）
+        // 多轮游戏计数系统（重构后）
+        let totalRounds = 0; // 总轮数（从配置中获取，如3表示要玩3轮）
+        let currentRoundIndex = 0; // 当前轮次索引（从0开始，0表示第1轮，1表示第2轮，以此类推）
         let nextRoundCheckDone = false; // 防止重复触发下一轮检查
+        let multiRoundConfig = null; // 保留配置用于获取词语，但不再依赖其长度来判断
 
-        function startGameWithWords(undercoverWord, civilianWord, roundsConfig = null, isFirstRound = false) {
-            if (roundsConfig) {
-                multiRoundConfig = roundsConfig;
-                if (isFirstRound) {
-                    currentRoundIndex = 0; // 只有第一轮才重置索引
-                    // 只有第一轮才清空历史投票结果
-                    allVoteResults = {};
-                    gameRoundMapping = {};
-                    descriptionRoundMapping = {};
-                    voteRoundMapping = {};
-                    nextRoundCheckDone = false; // 重置下一轮检查标志
-                }
-                // 保存多轮配置到 localStorage
-                saveToLocalStorage();
+        function startGameWithWords(undercoverWord, civilianWord, isFirstRound = false) {
+            if (isFirstRound) {
+                // 新开始游戏（第一轮或单轮游戏）：清空所有历史数据
+                allVoteResults = {};
+                allDescriptions = {}; // 新游戏开始时清空描述记录
+                gameRoundMapping = {};
+                descriptionRoundMapping = {};
+                voteRoundMapping = {};
+                nextRoundCheckDone = false; // 重置下一轮检查标志
             }
+            // 如果是多轮游戏的第二轮及之后（isFirstRound = false），不清空 allDescriptions，保留历史记录
+            
+            // 保存状态到 localStorage
+            saveToLocalStorage();
             
             fetch('/api/game/start', {
                 method: 'POST',
@@ -2659,45 +2723,53 @@ HTML_TEMPLATE = """
             });
         }
 
-        // 检查并开始下一轮游戏
+        // 检查并开始下一轮游戏（重构后的简化逻辑）
         function checkAndStartNextRound() {
             // 防止重复触发
             if (nextRoundCheckDone) {
                 return;
             }
             
-            if (!multiRoundConfig || multiRoundConfig.length === 0) {
-                return; // 没有多轮配置
+            // 如果没有配置多轮游戏，直接返回
+            if (totalRounds <= 0) {
+                return;
             }
 
             // 标记为已检查，防止重复
             nextRoundCheckDone = true;
 
-            // 检查是否还有下一轮
-            const nextRoundIndex = currentRoundIndex + 1;
-            if (nextRoundIndex >= multiRoundConfig.length) {
+            // 检查是否还有下一轮：currentRoundIndex < totalRounds - 1
+            // 例如：totalRounds=3, currentRoundIndex=0 -> 还有第2、3轮
+            //      totalRounds=3, currentRoundIndex=1 -> 还有第3轮
+            //      totalRounds=3, currentRoundIndex=2 -> 没有下一轮了
+            if (currentRoundIndex >= totalRounds - 1) {
                 // 所有轮次都已完成
-                showAlert('info', `所有 ${multiRoundConfig.length} 轮游戏已完成！`);
-                multiRoundConfig = null; // 清空配置
+                showAlert('info', `所有 ${totalRounds} 轮游戏已完成！`);
+                // 清空配置
+                totalRounds = 0;
                 currentRoundIndex = 0;
+                multiRoundConfig = null;
+                saveToLocalStorage();
                 return;
             }
 
             // 延迟3秒后自动开始下一轮，给用户时间查看结果
             setTimeout(() => {
-                const nextRound = multiRoundConfig[nextRoundIndex];
-                currentRoundIndex = nextRoundIndex;
+                // 递增当前轮次索引
+                currentRoundIndex++;
+                
+                // 获取当前轮次的词语配置
+                const nextRound = multiRoundConfig[currentRoundIndex];
                 
                 // 保存到 localStorage
                 saveToLocalStorage();
                 
-                showAlert('info', `准备开始第 ${nextRoundIndex + 1} 轮游戏...`);
+                showAlert('info', `准备开始第 ${currentRoundIndex + 1} 轮游戏...`);
                 
-                // 开始下一轮游戏（允许自动选词，不清空历史数据）
+                // 开始下一轮游戏（不清空历史数据，回合号由后端继续递增）
                 startGameWithWords(
                     nextRound.undercover_word, 
                     nextRound.civilian_word,
-                    multiRoundConfig, // 保持多轮配置
                     false // 不是第一轮
                 );
             }, 3000);
@@ -2715,12 +2787,23 @@ HTML_TEMPLATE = """
             // }
             
             // 清空多轮配置（单轮游戏不需要多轮配置）
-            multiRoundConfig = null;
+            totalRounds = 0;
             currentRoundIndex = 0;
+            multiRoundConfig = null;
             nextRoundCheckDone = false;
             
-            // 开始单轮游戏，不传多轮配置
-            startGameWithWords(undercoverWord, civilianWord, null, false);
+            // 清空历史数据
+            allVoteResults = {};
+            allDescriptions = {};
+            gameRoundMapping = {};
+            descriptionRoundMapping = {};
+            voteRoundMapping = {};
+            
+            // 保存状态
+            saveToLocalStorage();
+            
+            // 开始单轮游戏
+            startGameWithWords(undercoverWord, civilianWord, true);
         }
 
         // 游戏控制函数（保持向后兼容，但不再使用）
@@ -2760,12 +2843,14 @@ HTML_TEMPLATE = """
                         showAlert('success', resp.message || '游戏已重置');
                         // 清空所有历史数据
                         allVoteResults = {};
+                        allDescriptions = {};
                         gameRoundMapping = {};
                         descriptionRoundMapping = {};
                         voteRoundMapping = {};
                         // 清空多轮配置
-                        multiRoundConfig = null;
+                        totalRounds = 0;
                         currentRoundIndex = 0;
+                        multiRoundConfig = null;
                         nextRoundCheckDone = false;
                         // 清除 localStorage
                         clearLocalStorage();
