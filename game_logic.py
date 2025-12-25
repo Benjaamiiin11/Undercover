@@ -11,7 +11,7 @@ from enum import Enum
 MAX_GROUPS = 5  # 最大组数
 DESCRIBE_TIMEOUT = 180  # 描述阶段总超时时间（秒）
 VOTE_TIMEOUT = 120  # 投票阶段超时时间（秒）
-SPEAKER_TIMEOUT = 30  # 每个人发言超时时间（秒）
+SPEAKER_TIMEOUT = 60  # 每个人发言超时时间（秒）
 
 
 class GameStatus(Enum):
@@ -51,6 +51,7 @@ class GameLogic:
         self.total_games_played = 0  # 总游戏次数
         self.last_activity: Dict[str, datetime] = {}  # 组名 -> 最后活跃时间（用于检测在线状态）
         self.ready_groups: List[str] = []  # 已准备好开始回合的组（每回合开始前清空）
+        self.vote_start_times: Dict[str, datetime] = {}  # 组名 -> 投票开始时间（用于检测投票超时）
 
     def register_group(self, group_name: str) -> bool:
         """
@@ -266,6 +267,11 @@ class GameLogic:
             self.phase_deadline = datetime.now() + timedelta(seconds=VOTE_TIMEOUT)
             self.speaker_deadline = None
             self.game_status = GameStatus.VOTING
+            # 记录每个活跃组的投票开始时间
+            now = datetime.now()
+            self.vote_start_times = {}
+            for group_name in active_groups:
+                self.vote_start_times[group_name] = now
 
         msg = "描述提交成功"
         if is_timeout:
@@ -309,6 +315,10 @@ class GameLogic:
 
         # 更新活跃时间
         self.update_activity(voter_group)
+        
+        # 清除该组的投票开始时间（已投票）
+        if voter_group in self.vote_start_times:
+            del self.vote_start_times[voter_group]
 
         # 检查是否所有人投票完成
         round_votes = self.votes[self.current_round]
@@ -994,6 +1004,88 @@ class GameLogic:
         self.update_activity(group_name)
         return self.groups[group_name].get("word")
 
+    def skip_current_speaker(self) -> bool:
+        """
+        跳过当前发言者（超时自动跳过）
+        返回: 是否成功跳过
+        """
+        if self.game_status != GameStatus.DESCRIBING:
+            return False
+        
+        current_speaker = self.get_current_speaker()
+        if not current_speaker:
+            return False
+        
+        # 检查是否已经提交过描述
+        already_submitted = False
+        for desc in self.descriptions.get(self.current_round, []):
+            if desc["group"] == current_speaker:
+                already_submitted = True
+                break
+        
+        # 如果还没提交，记录一个超时的空描述
+        if not already_submitted:
+            self.descriptions[self.current_round].append({
+                "group": current_speaker,
+                "description": "[超时跳过]",
+                "time": datetime.now().isoformat(),
+                "timeout": True  # 标记为超时
+            })
+        
+        # 移动到下一个发言者
+        self.current_speaker_index += 1
+        
+        # 设置下一个发言者的截止时间
+        if self.current_speaker_index < len(self.describe_order):
+            self.speaker_deadline = datetime.now() + timedelta(seconds=SPEAKER_TIMEOUT)
+        else:
+            self.speaker_deadline = None
+        
+        # 检查是否所有人都提交了
+        active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
+        if len(self.descriptions[self.current_round]) >= len(active_groups):
+            # 设置投票阶段截止时间
+            self.phase_deadline = datetime.now() + timedelta(seconds=VOTE_TIMEOUT)
+            self.speaker_deadline = None
+            self.game_status = GameStatus.VOTING
+            # 记录每个活跃组的投票开始时间
+            now = datetime.now()
+            self.vote_start_times = {}
+            for group_name in active_groups:
+                self.vote_start_times[group_name] = now
+        
+        return True
+
+    def skip_vote_for_group(self, group_name: str) -> bool:
+        """
+        跳过某个组的投票（超时自动跳过）
+        返回: 是否成功跳过
+        """
+        if self.game_status != GameStatus.VOTING:
+            return False
+        
+        # 检查是否被淘汰
+        if group_name in self.eliminated_groups:
+            return False
+        
+        # 检查是否已经投过票
+        if group_name in self.votes[self.current_round]:
+            return False
+        
+        # 检查是否在活跃组中
+        active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
+        if group_name not in active_groups:
+            return False
+        
+        # 自动投票：投给自己（表示弃权）
+        self.votes[self.current_round][group_name] = group_name
+        
+        # 清除该组的投票开始时间（已跳过）
+        if group_name in self.vote_start_times:
+            del self.vote_start_times[group_name]
+        
+        return True
+
     def reset_game(self):
         """
         重置游戏
@@ -1019,6 +1111,7 @@ class GameLogic:
         self.phase_deadline = None
         self.speaker_deadline = None
         self.last_activity.clear()
+        self.vote_start_times.clear()
 
         # 恢复保留的数据
         self.groups = groups_backup
@@ -1059,6 +1152,7 @@ class GameLogic:
         self.speaker_deadline = None
         self.last_activity.clear()
         self.ready_groups = []
+        self.vote_start_times.clear()
         # 清空所有统计和缓存
         self.scores.clear()
         self.undercover_history.clear()
