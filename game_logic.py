@@ -1036,3 +1036,32 @@ class GameLogic:
         # 如果有注册的组，恢复状态为已注册
         if len(self.groups) > 0:
             self.game_status = GameStatus.REGISTERED
+
+    def clear_all(self):
+        """
+        完全清空所有组和缓存，就像新开了一次游戏一样
+        """
+        # 清空所有组
+        self.groups.clear()
+        # 清空所有游戏状态
+        self.game_status = GameStatus.WAITING
+        self.undercover_group = None
+        self.undercover_word = ""
+        self.civilian_word = ""
+        self.current_round = 0
+        self.describe_order = []
+        self.current_speaker_index = 0
+        self.descriptions.clear()
+        self.votes.clear()
+        self.eliminated_groups = []
+        self.last_vote_result = None
+        self.phase_deadline = None
+        self.speaker_deadline = None
+        self.last_activity.clear()
+        self.ready_groups = []
+        # 清空所有统计和缓存
+        self.scores.clear()
+        self.undercover_history.clear()
+        self.reports.clear()
+        self.game_counter = 0
+        self.total_games_played = 0

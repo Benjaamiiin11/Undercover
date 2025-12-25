@@ -615,6 +615,24 @@ def reset_game():
         return make_response({}, 200, '游戏已重置')
 
 
+@app.route('/api/game/clear_all', methods=['POST'])
+def clear_all():
+    """完全清空所有组和缓存接口（主持方调用）"""
+    if not _require_admin():
+        return _admin_forbidden_response()
+    with game_lock:
+        game.clear_all()
+        # 停止倒计时广播
+        stop_timer_broadcast()
+        # 广播状态变化
+        socketio.start_background_task(broadcast_status)
+        socketio.start_background_task(broadcast_game_state)
+        # 广播组列表和分数更新（清空后数据变化）
+        socketio.start_background_task(broadcast_groups)
+        socketio.start_background_task(broadcast_scores)
+        return make_response({}, 200, '已清空所有组和缓存')
+
+
 @app.route('/api/groups', methods=['GET'])
 def get_groups():
     """获取所有注册的组接口"""
