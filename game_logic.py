@@ -8,9 +8,9 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 # 配置常量
-MAX_GROUPS = 5  # 最大组数
+MAX_GROUPS = 10  # 最大组数
 DESCRIBE_TIMEOUT = 180  # 描述阶段总超时时间（秒）
-VOTE_TIMEOUT = 120  # 投票阶段超时时间（秒）
+VOTE_TIMEOUT = 60  # 投票阶段超时时间（秒）
 SPEAKER_TIMEOUT = 60  # 每个人发言超时时间（秒）
 
 
@@ -87,7 +87,8 @@ class GameLogic:
 
         return True
 
-    def start_game(self, undercover_word: str, civilian_word: str, websocket_status: Optional[Dict[str, bool]] = None) -> bool:
+    def start_game(self, undercover_word: str, civilian_word: str,
+                   websocket_status: Optional[Dict[str, bool]] = None) -> bool:
         """
         开始游戏，分配身份和词语（只给在线玩家分配）
         :param undercover_word: 卧底词
@@ -97,10 +98,10 @@ class GameLogic:
         """
         # 获取在线状态
         online_status = self.get_online_status(websocket_status)
-        
+
         # 获取在线玩家列表
         online_groups = [name for name in self.groups.keys() if online_status.get(name, False)]
-        
+
         # 允许至少1个在线玩家开始
         if len(online_groups) < 1:
             return False
@@ -110,11 +111,11 @@ class GameLogic:
 
         # 清空淘汰组和重置所有组的淘汰状态（用于多轮游戏）
         self.eliminated_groups = []
-        
+
         # 更新所有组的淘汰状态
         for group_name in self.groups:
             self.groups[group_name]["eliminated"] = False
-        
+
         # 离线玩家标记为淘汰（不参与游戏）
         for group_name in self.groups:
             if group_name not in online_groups:
@@ -315,7 +316,7 @@ class GameLogic:
 
         # 更新活跃时间
         self.update_activity(voter_group)
-        
+
         # 清除该组的投票开始时间（已投票）
         if voter_group in self.vote_start_times:
             del self.vote_start_times[voter_group]
@@ -350,13 +351,13 @@ class GameLogic:
 
         # 添加到准备列表
         self.ready_groups.append(group_name)
-        
+
         # 更新活跃时间
         self.update_activity(group_name)
 
         # 获取活跃组列表（未淘汰的）
         active_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
-        
+
         # 检查是否所有人都准备好了
         all_ready = len(self.ready_groups) >= len(active_groups)
 
@@ -686,16 +687,16 @@ class GameLogic:
         # 只在游戏进行中时处理断开连接
         if self.game_status in [GameStatus.WAITING, GameStatus.REGISTERED]:
             return None
-        
+
         # 如果已经淘汰了，不需要处理
         if group_name in self.eliminated_groups:
             return None
-        
+
         # 标记为淘汰（退出游戏）
         self.eliminated_groups.append(group_name)
         if group_name in self.groups:
             self.groups[group_name]["eliminated"] = True
-        
+
         # 记录异常
         if not self._has_existing_report(group_name, 'disconnect', self.current_round):
             self.add_report(
@@ -703,12 +704,12 @@ class GameLogic:
                 'disconnect',
                 f'检测到断开连接，视为退出游戏（第{self.current_round}轮）'
             )
-        
+
         # 如果断开的是卧底，平民胜利，游戏结束
         if group_name == self.undercover_group:
             # 计算得分
             self._calculate_scores()
-            
+
             result = {
                 "round": self.current_round,
                 "vote_count": {},
@@ -727,23 +728,23 @@ class GameLogic:
                 "active_groups": [g for g in self.groups.keys() if g not in self.eliminated_groups],
                 "voted_groups": []
             }
-            
+
             # 计算本轮得分
             self._calculate_round_scores(result)
-            
+
             self.game_status = GameStatus.GAME_END
             self.last_vote_result = result
-            
+
             return result
-        
+
         # 如果断开的是平民，检查是否满足游戏结束条件
         remaining_groups = [g for g in self.groups.keys() if g not in self.eliminated_groups]
         remaining_civilians = [g for g in remaining_groups if g != self.undercover_group]
-        
+
         if len(remaining_civilians) <= 1:
             # 平民只剩1组或0组，卧底胜利，游戏结束
             self._calculate_scores()
-            
+
             result = {
                 "round": self.current_round,
                 "vote_count": {},
@@ -754,8 +755,8 @@ class GameLogic:
                 "game_ended": True,
                 "winner": "undercover",
                 "message": f"📡 {group_name}（平民）断开连接，视为退出游戏。\n"
-                          f"平民只剩{len(remaining_civilians)}组\n"
-                          f"🎭 卧底 {self.undercover_group} 胜利！",
+                           f"平民只剩{len(remaining_civilians)}组\n"
+                           f"🎭 卧底 {self.undercover_group} 胜利！",
                 "undercover_group": self.undercover_group,
                 "undercover_word": self.undercover_word,
                 "civilian_word": self.civilian_word,
@@ -764,15 +765,15 @@ class GameLogic:
                 "active_groups": remaining_groups,
                 "voted_groups": []
             }
-            
+
             # 计算本轮得分
             self._calculate_round_scores(result)
-            
+
             self.game_status = GameStatus.GAME_END
             self.last_vote_result = result
-            
+
             return result
-        
+
         # 平民断开连接，但游戏继续
         # 不生成投票结果，只是更新状态
         # 如果正在描述或投票阶段，需要从发言顺序中移除
@@ -787,7 +788,7 @@ class GameLogic:
             # 从投票中移除（如果已投票）
             if self.current_round in self.votes and group_name in self.votes[self.current_round]:
                 del self.votes[self.current_round][group_name]
-        
+
         return None
 
     def detect_missing_submissions(self, websocket_status: Optional[Dict[str, bool]] = None) -> List[Dict]:
@@ -1011,18 +1012,18 @@ class GameLogic:
         """
         if self.game_status != GameStatus.DESCRIBING:
             return False
-        
+
         current_speaker = self.get_current_speaker()
         if not current_speaker:
             return False
-        
+
         # 检查是否已经提交过描述
         already_submitted = False
         for desc in self.descriptions.get(self.current_round, []):
             if desc["group"] == current_speaker:
                 already_submitted = True
                 break
-        
+
         # 如果还没提交，记录一个超时的空描述
         if not already_submitted:
             self.descriptions[self.current_round].append({
@@ -1031,16 +1032,16 @@ class GameLogic:
                 "time": datetime.now().isoformat(),
                 "timeout": True  # 标记为超时
             })
-        
+
         # 移动到下一个发言者
         self.current_speaker_index += 1
-        
+
         # 设置下一个发言者的截止时间
         if self.current_speaker_index < len(self.describe_order):
             self.speaker_deadline = datetime.now() + timedelta(seconds=SPEAKER_TIMEOUT)
         else:
             self.speaker_deadline = None
-        
+
         # 检查是否所有人都提交了
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
         if len(self.descriptions[self.current_round]) >= len(active_groups):
@@ -1053,7 +1054,7 @@ class GameLogic:
             self.vote_start_times = {}
             for group_name in active_groups:
                 self.vote_start_times[group_name] = now
-        
+
         return True
 
     def skip_vote_for_group(self, group_name: str) -> bool:
@@ -1063,40 +1064,38 @@ class GameLogic:
         """
         if self.game_status != GameStatus.VOTING:
             return False
-        
+
         # 检查是否被淘汰
         if group_name in self.eliminated_groups:
             return False
-        
+
         # 检查是否已经投过票
         if group_name in self.votes[self.current_round]:
             return False
-        
+
         # 检查是否在活跃组中
         active_groups = [g for g in self.describe_order if g not in self.eliminated_groups]
         if group_name not in active_groups:
             return False
-        
+
         # 自动投票：投给自己（表示弃权）
         self.votes[self.current_round][group_name] = group_name
-        
+
         # 清除该组的投票开始时间（已跳过）
         if group_name in self.vote_start_times:
             del self.vote_start_times[group_name]
-        
+
         return True
 
     def reset_game(self):
         """
-        重置游戏
+        重置游戏 - 保留注册的组及其基本信息，只重置游戏数据
         """
+        # 备份需要保留的数据（只保留组的基本信息）
         groups_backup = self.groups.copy()
-        scores_backup = self.scores.copy()
-        undercover_history_backup = self.undercover_history.copy()
-        reports_backup = self.reports.copy()
-        total_games_backup = self.total_games_played
+        last_activity_backup = self.last_activity.copy()
 
-        # 清除游戏状态相关字段
+        # 清除所有游戏状态相关字段
         self.game_status = GameStatus.WAITING
         self.undercover_group = None
         self.undercover_word = ""
@@ -1104,21 +1103,23 @@ class GameLogic:
         self.current_round = 0
         self.describe_order = []
         self.current_speaker_index = 0
-        self.descriptions.clear()
-        self.votes.clear()
+        self.descriptions.clear()  # 清空所有描述记录
+        self.votes.clear()  # 清空所有投票记录
         self.eliminated_groups = []  # 清空淘汰组
-        self.last_vote_result = None
+        self.scores.clear()  # 清空得分
+        self.reports.clear()  # 清空异常报告
+        self.last_vote_result = None  # 清空最后投票结果
         self.phase_deadline = None
         self.speaker_deadline = None
-        self.last_activity.clear()
-        self.vote_start_times.clear()
+        self.ready_groups = []  # 清空准备状态
+        self.game_counter = 0  # 重置游戏计数
+        self.total_games_played = 0  # 重置总游戏次数
+        self.vote_start_times.clear()  # 清空投票开始时间
+        self.undercover_history.clear()  # 清空卧底历史
 
         # 恢复保留的数据
         self.groups = groups_backup
-        self.scores = scores_backup  # 保留得分
-        self.undercover_history = undercover_history_backup
-        self.reports = reports_backup
-        self.total_games_played = total_games_backup
+        self.last_activity = last_activity_backup
 
         # 重置组的游戏相关状态（但保留注册信息）
         for group_name in self.groups:
@@ -1126,9 +1127,17 @@ class GameLogic:
             self.groups[group_name]["word"] = ""
             self.groups[group_name]["eliminated"] = False  # 重置淘汰状态
 
+            # 重置得分（保留组名但分数清零）
+            self.scores[group_name] = 0
+
+            # 重置该组的卧底计数（从0开始重新计数）
+            self.undercover_history[group_name] = 0  # 为每个组重新初始化
+
         # 如果有注册的组，恢复状态为已注册
         if len(self.groups) > 0:
             self.game_status = GameStatus.REGISTERED
+
+        print(f"游戏已重置：保留 {len(self.groups)} 个注册组，清空所有游戏数据")
 
     def clear_all(self):
         """

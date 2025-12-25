@@ -82,7 +82,6 @@ def api_clear_all():
     )
     return jsonify(response.json()), response.status_code
 
-
 if __name__ == '__main__':
     print("=" * 50)
     print("前端界面服务器启动中...")

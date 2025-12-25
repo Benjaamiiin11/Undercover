@@ -46,7 +46,6 @@ init_websocket_handlers(game, game_lock, group_sockets, socketio)
 register_all_routes(app)
 register_websocket_handlers(socketio)
 
-
 if __name__ == '__main__':
     local_ip = get_local_ip()
     print(f"=" * 50)

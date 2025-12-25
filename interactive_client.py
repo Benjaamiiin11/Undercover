@@ -11,7 +11,7 @@ import threading
 from urllib.parse import urlparse
 
 # 配置服务器地址
-BASE_URL = "http://127.0.0.1:5000"
+BASE_URL = "http://192.168.241.90:5000"
 
 
 class InteractiveClient:
@@ -513,7 +513,17 @@ class InteractiveClient:
 
         # 获取可投票的组
         active = status.get('active_groups', [])
+
+        # 先检查自己是否在活跃组中
+        if self.group_name not in active:
+            print(f"⚠️  自己不在活跃组列表中，可能被淘汰或状态错误")
+            return False
+
+        # 从活跃组中排除自己
         others = [g for g in active if g != self.group_name]
+
+        print(f"- 可投票的组: {others}")
+        print(f"- 可投票组数: {len(others)}")
 
         if not others:
             print("\n⚠️  没有其他组可以投票，等待中...")
@@ -526,30 +536,62 @@ class InteractiveClient:
 
         # 循环直到输入有效的投票
         while True:
-            choice = input(f"\n请输入要投票的组名或序号 (输入 'skip' 跳过): ").strip()
+            try:
+                # 检查游戏状态是否改变（例如游戏被重置）
+                current_status = self.get_status()
+                game_status = current_status.get('status')
+                if game_status not in ['voting', 'round_end', 'game_end']:
+                    # 游戏状态已改变（可能是被重置）
+                    print(f"\n⚠️  游戏状态已改变: {game_status}")
+                    return False
 
-            if choice.lower() == 'skip':
-                print("跳过投票")
-                return False
+                # 显示投票提示
+                choice = input(f"\n请输入要投票的组名或序号 (输入 'skip' 跳过): ").strip()
 
-            # 支持输入序号
-            if choice.isdigit():
-                idx = int(choice) - 1
-                if 0 <= idx < len(others):
-                    choice = others[idx]
+                if choice.lower() == 'skip':
+                    print("跳过投票")
+                    return False
 
-            if choice in others:
-                success, msg = self.submit_vote(choice)
-                if success:
-                    print(f"✓ {msg}: {self.group_name} → {choice}")
-                    return True
+                # 支持输入序号
+                if choice.isdigit():
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(others):
+                        choice = others[idx]
+                    else:
+                        print(f"序号无效，请输入 1-{len(others)} 之间的数字")
+                        continue
+
+                if choice in others:
+                    success, msg = self.submit_vote(choice)
+                    if success:
+                        print(f"✓ {msg}: {self.group_name} → {choice}")
+                        return True
+                    else:
+                        # 检查是否因为游戏状态改变导致投票失败
+                        current_status = self.get_status()
+                        game_status = current_status.get('status')
+                        if game_status not in ['voting', 'round_end', 'game_end']:
+                            print(f"\n⚠️  游戏状态已改变: {game_status}")
+                            return False
+                        print(f"✗ 投票失败: {msg}")
+                        # 重新显示可投票的组
+                        print("请重新选择，可投票的组:")
+                        for i, g in enumerate(others, 1):
+                            print(f"  {i}. {g}")
+                        continue
                 else:
-                    print(f"✗ 投票失败: {msg}")
-                    print("请重新选择:")
-            else:
-                print(f"✗ 无效的选择，请从以下选项中选择:")
-                for i, g in enumerate(others, 1):
-                    print(f"  {i}. {g}")
+                    print(f"✗ 组名无效: {choice}")
+                    print("请从以下组中选择:")
+                    for i, g in enumerate(others, 1):
+                        print(f"  {i}. {g}")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n\n投票被取消")
+                return False
+            except Exception as e:
+                print(f"\n投票出错: {e}")
+                return False
 
     def handle_game_reset(self):
         """处理游戏重置的情况"""

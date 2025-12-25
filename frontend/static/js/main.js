@@ -252,7 +252,7 @@ function updateAllDisplay() {
     
     // 只有当有轮次配置且回合号大于0时，才建立回合号到轮次的映射
     // 只在真正的新游戏开始时建立映射，避免在同一个轮次内重复更新映射
-    // 重要：只在状态从 game_end 变为 word_assigned 且回合号为1时，才建立映射
+    // 只在状态从 game_end 变为 word_assigned 且回合号为1时，才建立映射
     if (currentRound > 0 && gameNumber && isNewGame && currentRound === 1) {
         // 只在新游戏开始时建立映射，避免覆盖已有映射
         if (!descriptionRoundMapping[currentRound]) {
@@ -453,7 +453,15 @@ function updatePlayers() {
 
 function updateDescriptions() {
     const container = document.getElementById('descriptions-content');
-
+    // 如果 allDescriptions 为空，显示暂无记录
+    if (Object.keys(allDescriptions).length === 0) {
+        container.innerHTML = `
+            <div class="description-item">
+                <div class="desc-header">暂无描述记录</div>
+            </div>
+        `;
+        return;
+    }
     // 使用历史描述记录
     // 判断是否是多轮游戏：检查是否有包含下划线的键（多轮格式）
     const hasMultiRoundKeys = Object.keys(allDescriptions).some(key => key.includes('_'));
@@ -580,7 +588,15 @@ function updateDescriptions() {
 
 function updateVoteRecords() {
     const container = document.getElementById('votes-content');
-
+    // 如果 allVoteResults 为空，显示暂无记录
+    if (Object.keys(allVoteResults).length === 0) {
+        container.innerHTML = `
+            <div class="round-vote-section">
+                <div class="round-title">暂无投票记录</div>
+            </div>
+        `;
+        return;
+    }
     // 只使用 allVoteResults 中的数据，不再从 gameData.votes 添加
     // 因为投票结果已经通过 vote_result 事件存储在 allVoteResults 中了
     const allVotes = { ...allVoteResults };
@@ -680,7 +696,15 @@ function updateVoteRecords() {
 
 function updateGameResults() {
     const container = document.getElementById('results-content');
-
+    // 如果 allVoteResults 为空，显示暂无记录
+    if (Object.keys(allVoteResults).length === 0) {
+        container.innerHTML = `
+            <div class="result-item">
+                <div class="result-header">暂无游戏结果</div>
+            </div>
+        `;
+        return;
+    }
     if (Object.keys(allVoteResults).length === 0) {
         container.innerHTML = `
             <div class="result-item">
@@ -849,13 +873,16 @@ function updateGameStats() {
     const groups = gameData.groups || {};
     const scores = gameData.scores || {};
 
-    // 注册组数
+    // 注册组数 - 保持不变
     document.getElementById('stat-groups').textContent = Object.keys(groups).length;
 
-    // 游戏次数
+    // 游戏次数 - 从后端获取，重置后应该为0
     document.getElementById('stat-games').textContent = gameData.game_counter || 0;
 
-    // 最高分
+    // 当前回合 - 从后端获取，重置后应该为0
+    document.getElementById('stat-round').textContent = gameData.current_round || 0;
+
+    // 最高分 - 重置后所有分数为0，所以最高分也是0
     const scoresArray = Object.values(scores);
     const maxScore = scoresArray.length > 0 ? Math.max(...scoresArray) : 0;
     document.getElementById('stat-highscore').textContent = maxScore;
@@ -1487,7 +1514,7 @@ function startRound() {
 }
 
 function resetGame() {
-    if (confirm('确定要重置游戏吗？')) {
+    if (confirm('确定要重置游戏吗？这将重置所有游戏数据，但保留已注册的组。')) {
         fetch('/api/game/reset', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'}
@@ -1496,26 +1523,41 @@ function resetGame() {
         .then(resp => {
             if (resp && resp.code === 200) {
                 showAlert('success', resp.message || '游戏已重置');
-                // 清空所有历史数据
+
+                // 1. 清空前端的历史数据（描述、投票、结果）
                 allVoteResults = {};
                 allDescriptions = {};
                 gameRoundMapping = {};
                 descriptionRoundMapping = {};
                 voteRoundMapping = {};
-                // 清空多轮配置
+
+                // 2. 清空多轮配置
                 totalRounds = 0;
                 currentRoundIndex = 0;
                 multiRoundConfig = null;
                 nextRoundCheckDone = false;
-                // 清除 localStorage
-                clearLocalStorage();
-                // 立即更新投票记录和游戏结果的显示
-                updateVoteRecords();
-                updateGameResults();
+
+                // 3. 清空 localStorage 中的游戏数据（保留注册信息）
+                clearLocalStorageGameData();
+
+                // 4. 立即更新显示
+                updateDescriptions();      // 清空描述记录
+                updateVoteRecords();       // 清空投票记录
+                updateGameResults();       // 清空游戏结果
+                updateGameStats();         // 更新统计（游戏次数、回合、最高分会重置）
+
+                // 5. 从服务器获取最新状态（注册的组还在）
                 fetchGameState();
-                // 清除输入框
+
+                // 6. 清空词语输入框
                 document.getElementById('undercover-word').value = '';
                 document.getElementById('civilian-word').value = '';
+
+                // 7. 手动重置统计显示（确保显示为0）
+                document.getElementById('stat-games').textContent = '0';
+                document.getElementById('stat-round').textContent = '0';
+                document.getElementById('stat-highscore').textContent = '0';
+
             } else {
                 showAlert('danger', '错误：' + (resp ? resp.message : '后端无响应'));
             }
@@ -1523,6 +1565,23 @@ function resetGame() {
         .catch(error => {
             showAlert('danger', '请求失败：' + error);
         });
+    }
+}
+
+// 只清除游戏相关的 localStorage 数据，不删除组信息
+function clearLocalStorageGameData() {
+    try {
+        // 只清除游戏数据相关的键
+        localStorage.removeItem(STORAGE_KEYS.VOTE_RESULTS);
+        localStorage.removeItem(STORAGE_KEYS.DESCRIPTIONS);
+        localStorage.removeItem(STORAGE_KEYS.ROUND_MAPPINGS);
+        localStorage.removeItem(STORAGE_KEYS.MULTI_ROUND_CONFIG);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ROUND_INDEX);
+        localStorage.removeItem(STORAGE_KEYS.TOTAL_ROUNDS);
+
+        console.log('已清空游戏数据缓存');
+    } catch (e) {
+        console.error('清除 localStorage 游戏数据失败:', e);
     }
 }
 
