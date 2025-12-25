@@ -1177,6 +1177,9 @@ HTML_TEMPLATE = """
                 <button class="control-btn btn-reset" onclick="resetGame()">
                     <i class="fas fa-redo"></i> 重置游戏
                 </button>
+                <button class="control-btn btn-clear-all" onclick="clearAll()" style="background-color: #dc3545;">
+                    <i class="fas fa-trash-alt"></i> 清空所有
+                </button>
             </div>
         </div>
 
@@ -2870,6 +2873,46 @@ HTML_TEMPLATE = """
                 });
             }
         }
+
+        function clearAll() {
+            if (confirm('确定要清空所有组和缓存吗？这将踢出所有已注册的组，就像新开了一次游戏一样。')) {
+                fetch('/api/game/clear_all', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                })
+                .then(response => response.json())
+                .then(resp => {
+                    if (resp && resp.code === 200) {
+                        showAlert('success', resp.message || '已清空所有组和缓存');
+                        // 清空所有历史数据
+                        allVoteResults = {};
+                        allDescriptions = {};
+                        gameRoundMapping = {};
+                        descriptionRoundMapping = {};
+                        voteRoundMapping = {};
+                        // 清空多轮配置
+                        totalRounds = 0;
+                        currentRoundIndex = 0;
+                        multiRoundConfig = null;
+                        nextRoundCheckDone = false;
+                        // 清除 localStorage
+                        clearLocalStorage();
+                        // 立即更新投票记录和游戏结果的显示
+                        updateVoteRecords();
+                        updateGameResults();
+                        fetchGameState();
+                        // 清除输入框
+                        document.getElementById('undercover-word').value = '';
+                        document.getElementById('civilian-word').value = '';
+                    } else {
+                        showAlert('danger', '错误：' + (resp ? resp.message : '后端无响应'));
+                    }
+                })
+                .catch(error => {
+                    showAlert('danger', '请求失败：' + error);
+                });
+            }
+        }
     </script>
 </body>
 </html>
@@ -2930,6 +2973,17 @@ def api_reset_game():
     """代理后端API"""
     response = requests.post(
         f"{BACKEND_URL}/api/game/reset",
+        headers=ADMIN_HEADERS,
+        timeout=2
+    )
+    return jsonify(response.json()), response.status_code
+
+
+@frontend_app.route('/api/game/clear_all', methods=['POST'])
+def api_clear_all():
+    """代理后端API"""
+    response = requests.post(
+        f"{BACKEND_URL}/api/game/clear_all",
         headers=ADMIN_HEADERS,
         timeout=2
     )
