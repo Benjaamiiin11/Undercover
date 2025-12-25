@@ -22,7 +22,7 @@ if __name__ == '__main__':
     print(f"本地访问: http://127.0.0.1:5000")
     print(f"局域网访问: http://{local_ip}:5000")
     print(f"WebSocket: 已启用实时推送")
-    print(f"词库: {len(WORD_PAIRS)} 对词语")
+    print("词库加载成功")
     print(f"=" * 50)
     print(f"请确保游戏方能够访问上述IP地址")
     print(f"=" * 50)

@@ -31,7 +31,7 @@ def load_word_pairs():
                         undercover_word = parts[1].strip()
                         if civilian_word and undercover_word:
                             word_pairs.append((civilian_word, undercover_word))
-        print(f"成功加载 {len(word_pairs)} 对词语")
+        print("词库加载成功")
     except Exception as e:
         print(f"加载词库失败: {e}")
     
