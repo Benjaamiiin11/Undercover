@@ -1,1 +1,1 @@
-python frontend.py
+python run_frontend.py

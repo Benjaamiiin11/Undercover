@@ -242,6 +242,25 @@ function updateAllDisplay() {
     const currentRound = gameData.current_round || 0;
     const gameNumber = totalRounds > 0 ? (currentRoundIndex + 1) : null;
     const currentStatus = gameData.status || '';
+    const groups = gameData.groups || {};
+    const groupCount = Object.keys(groups).length;
+    
+    // 检测后端是否完全重置（没有组且状态为 waiting 或 registered）
+    // 如果后端重启或清空所有组，应该清空前端的历史记录
+    if ((currentStatus === 'waiting' || currentStatus === 'registered') && groupCount === 0) {
+        // 检查是否有历史记录需要清空
+        if (Object.keys(allDescriptions).length > 0 || Object.keys(allVoteResults).length > 0) {
+            console.log('检测到后端已重置（无组），清空前端历史记录');
+            // 清空内存中的数据
+            allDescriptions = {};
+            allVoteResults = {};
+            gameRoundMapping = {};
+            descriptionRoundMapping = {};
+            voteRoundMapping = {};
+            // 清空 localStorage
+            clearLocalStorage();
+        }
+    }
     
     // 检测新游戏开始：
     // 1. 状态从 game_end 变为 word_assigned 或 registered
