@@ -956,8 +956,44 @@ function updateGameStateDisplay(data) {
     let displayClass = '';
     let bgColor = '';
 
-    const latestRound = Math.max(...Object.keys(allVoteResults).map(Number).filter(n => !isNaN(n)), 0);
-    const latestResult = latestRound > 0 ? allVoteResults[latestRound] : null;
+    // 获取最新的投票结果
+    let latestResult = null;
+    if (Object.keys(allVoteResults).length > 0) {
+        // 解析所有结果，按轮次和回合排序，取最新的
+        const results = Object.entries(allVoteResults).map(([key, result]) => {
+            const parts = key.split('_');
+            let gameNumber = null;
+            let round = null;
+            
+            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                gameNumber = parseInt(parts[0]);
+                round = parseInt(parts[1]);
+            } else {
+                round = parseInt(key);
+                gameNumber = voteRoundMapping[round] || (result.game_number || null);
+            }
+            
+            return {
+                key: key,
+                gameNumber: gameNumber || 999,
+                round: round,
+                result: result
+            };
+        });
+        
+        // 排序：先按轮次降序，再按回合降序
+        results.sort((a, b) => {
+            if (a.gameNumber !== b.gameNumber) {
+                return b.gameNumber - a.gameNumber;
+            }
+            return b.round - a.round;
+        });
+        
+        // 取最新的结果
+        if (results.length > 0) {
+            latestResult = results[0].result;
+        }
+    }
 
     switch(status) {
         case 'waiting':
