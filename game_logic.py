@@ -643,7 +643,7 @@ class GameLogic:
     def get_online_status(self, websocket_status: Optional[Dict[str, bool]] = None) -> Dict[str, bool]:
         """检测各组是否在线（优先使用WebSocket连接状态，降级使用活跃时间）"""
         online_status = {}
-        threshold = timedelta(seconds=60)  # 60秒未活跃视为离线
+        threshold = timedelta(seconds=120)  # 120秒未活跃视为离线
 
         for group_name in self.groups.keys():
             # 优先使用WebSocket连接状态
